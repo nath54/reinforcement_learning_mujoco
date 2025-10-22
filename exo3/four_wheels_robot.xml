@@ -4,11 +4,11 @@
   <size njmax="1000" nconmax="500"/>
 
   <default>
-    <geom rgba="0.8 0.6 0.75 1" friction="1.2 0.01 0.002" condim="4"/>
+    <geom rgba="1 1 1 1" friction="1.2 0.01 0.002" condim="4"/>
   </default>
 
   <asset>
-    <material name="mat_chassis" rgba="0.3 0.3 0.35 1"/>
+    <material name="mat_chassis" rgba="0.39 0.13 0.63 1"/>
     <material name="mat_wheel"   rgba="0.1 0.1 0.1 1"/>
     <material name="mat_floor"   rgba="0.85 0.85 0.85 1"/>
   </asset>
@@ -22,6 +22,9 @@
       <!-- Chassis -->
       <!-- box size = half-dimensions: x=0.40, y=0.30, z=0.10  (full size: 0.8 x 0.6 x 0.2 m) -->
       <geom name="chassis" type="box" size="0.40 0.30 0.05" material="mat_chassis" mass="51"/>
+      <body name="chassis-up" pos="0 0 0.1">
+        <geom name="chassis-upp" type="box" size="0.20 0.15 0.1" material="mat_chassis" mass="51"/>
+      </body>
 
       <!-- Wheel parameters -->
       <!-- wheel radius r, half-length (width/2) w/2. Cylinder’s axis is local Z; we rotate with euler="90 0 0" so the cylinder’s axis aligns with world Y (the hinge axis below). -->

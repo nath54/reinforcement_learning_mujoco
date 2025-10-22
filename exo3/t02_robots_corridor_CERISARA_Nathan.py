@@ -186,7 +186,8 @@ class Robot:
         robot_materials: list[dict[str, str]] = [
             {
                 'name': 'mat_chassis_beige',
-                'rgba': '0.96 0.87 0.70 1',  # Nice beige color
+                'texture': 'tex_chassis',
+                'rgba': '0.39 0.13 0.63 1',  # Nice violet color
                 'shininess': '0.3',
                 'specular': '0.5'
             },
@@ -265,6 +266,21 @@ class Robot:
         #
         textures["tex_wheel_radius"] = wheel_texture
 
+
+        wheel_texture = ET.Element('texture')
+        #
+        wheel_texture.set('name', 'tex_chassis')
+        wheel_texture.set('type', '2d')
+        wheel_texture.set('builtin', 'gradient')
+        wheel_texture.set('rgb1', '0.39 0.13 0.63')  # Red spoke
+        wheel_texture.set('rgb2', '0 0 0')  # Black tire
+        wheel_texture.set('width', '32')
+        wheel_texture.set('height', '32')
+        # wheel_texture.set('mark', 'random')
+        # wheel_texture.set('markrgb', '1 1 1')  # Yellow marks
+        #
+        textures["tex_chassis"] = wheel_texture
+
         #
         return textures
 
@@ -289,11 +305,11 @@ class Robot:
         #
         for geom in robot_body.iter('geom'):
             #
-            if geom.get('name') == 'chassis':
+            if 'chassis' in geom.get('name', ''):
                 #
                 geom.set('material', 'mat_chassis_beige')
                 #
-                print("  Updated chassis to beige color")
+                print("  Updated chassis color")
 
         #
         ### Find and update wheel materials (positions now defined in XML). ###
