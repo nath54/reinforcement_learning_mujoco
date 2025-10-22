@@ -1,0 +1,33 @@
+<worldbody><geom name="dynamic_floor" type="plane" size="100 100 0.1" pos="0 0 -0.1" material="mat_floor_normal" friction="1.0 0.005 0.0001" /><body name="robot" pos="0 0 -8.1">
+      
+      <joint name="root" type="free" damping="0.1" />
+
+      
+      
+      <geom name="chassis" type="box" size="0.40 0.30 0.10" material="mat_chassis_beige" mass="15" />
+
+      
+      
+      
+      
+      <body name="wheel_fl" pos=" 0.35  0.30 -0.10">  
+        <joint name="hinge_fl" type="hinge" axis="0 1 0" damping="0.2" limited="false" />
+        <geom name="geom_fl" type="cylinder" size="0.15 0.03" euler="90 0 0" material="mat_wheel_black" mass="1.0" />
+      </body>
+
+      <body name="wheel_fr" pos=" 0.35 -0.30 -0.10">  
+        <joint name="hinge_fr" type="hinge" axis="0 1 0" damping="0.2" limited="false" />
+        <geom name="geom_fr" type="cylinder" size="0.15 0.03" euler="90 0 0" material="mat_wheel_black" mass="1.0" />
+      </body>
+
+      <body name="wheel_rl" pos="-0.35  0.30 -0.10">  
+        <joint name="hinge_rl" type="hinge" axis="0 1 0" damping="0.2" limited="false" />
+        <geom name="geom_rl" type="cylinder" size="0.15 0.03" euler="90 0 0" material="mat_wheel_black" mass="1.0" />
+      </body>
+
+      <body name="wheel_rr" pos="-0.35 -0.30 -0.10">  
+        <joint name="hinge_rr" type="hinge" axis="0 1 0" damping="0.2" limited="false" />
+        <geom name="geom_rr" type="cylinder" size="0.15 0.03" euler="90 0 0" material="mat_wheel_black" mass="1.0" />
+      </body>
+    </body>
+  </worldbody>

@@ -1,0 +1,1079 @@
+#
+### Import Modules. ###
+#
+from typing import Any, Optional, cast
+#
+import mujoco
+from mujoco import viewer as viewer_  # type: ignore
+#
+import xml.etree.ElementTree as ET
+#
+import numpy as np
+from numpy.typing import NDArray
+
+#
+viewer: Any = cast(Any, viewer_)  # fix to remove pylance type hinting errors with mujoco.viewer stubs errors
+
+
+#
+class Corridor:
+
+    #
+    def __init__(self) -> None:
+
+        #
+        self.xml_file_path: str = "corridor_3x100.xml"  # "corridor_custom.xml"  # 
+
+    #
+    def extract_corridor_from_xml(self) -> dict[str, Any]:
+        """
+        Extract robot components from existing XML file.
+        This teaches students how to parse and reuse XML components.
+        """
+
+        #
+        print(f"Extracting corridor components from {self.xml_file_path}...")
+
+        #
+        ### Parse the existing XML file. ###
+        #
+        tree: ET.ElementTree[ET.Element] = ET.parse(self.xml_file_path)
+        root: ET.Element = tree.getroot()
+
+        #
+        ### Extract useful components. ###
+        #
+        components: dict[str, Optional[Any]] = {
+            'compiler': None,
+            'option': None,
+            'default': None,
+            'asset': None,
+            'body': None
+        }
+
+        #
+        comps_body: list[ET.Element] = []
+
+        #
+        ### Find and extract each component. ###
+        #
+        for child in root:
+            #
+            if child.tag == 'compiler':
+                #
+                components['compiler'] = child
+            #
+            elif child.tag == 'option':
+                #
+                components['option'] = child
+            #
+            elif child.tag == 'default':
+                #
+                components['default'] = child
+            #
+            elif child.tag == 'asset':
+                #
+                components['asset'] = child
+            #
+            elif child.tag == 'worldbody':
+                #
+                for body in child:
+                    #
+                    comps_body.append(body)
+                #
+                components["body"] = comps_body
+            #
+            elif child.tag == 'actuator':
+                #
+                components['actuators'] = child
+
+        #
+        return components
+
+
+#
+class Robot:
+
+    #
+    def __init__(self) -> None:
+
+        #
+        self.xml_file_path: str = "four_wheels_robot.xml"
+
+        #
+        ### Parse the existing XML file. ###
+        #
+        self.tree: ET.ElementTree[ET.Element] = ET.parse(self.xml_file_path)
+        #
+        self.root: ET.Element = self.tree.getroot()
+
+    #
+    def extract_robot_from_xml(self) -> dict[str, Any]:
+        """
+        Extract robot components from existing XML file.
+        This teaches students how to parse and reuse XML components.
+        """
+
+        #
+        print(f"Extracting robot components from {self.xml_file_path}...")
+
+        #
+        ### Parse the existing XML file. ###
+        #
+        tree: ET.ElementTree[ET.Element] = ET.parse(self.xml_file_path)
+        root: ET.Element = tree.getroot()
+
+        #
+        ### Extract useful components. ###
+        #
+        components: dict[str, Optional[Any]] = {
+            'compiler': None,
+            'option': None,
+            'default': None,
+            'asset': None,
+            'robot_body': None,
+            'actuators': None
+        }
+
+        #
+        ### Find and extract each component. ###
+        #
+        for child in root:
+            #
+            if child.tag == 'compiler':
+                #
+                components['compiler'] = child
+            #
+            elif child.tag == 'option':
+                #
+                components['option'] = child
+            #
+            elif child.tag == 'default':
+                #
+                components['default'] = child
+            #
+            elif child.tag == 'asset':
+                #
+                components['asset'] = child
+            #
+            elif child.tag == 'worldbody':
+                #
+                ### Extract the robot body from worldbody. ###
+                #
+                for body in child:
+                    #
+                    if body.get('name') == 'robot':
+                        #
+                        components['robot_body'] = body
+            #
+            elif child.tag == 'actuator':
+                #
+                components['actuators'] = child
+
+        #
+        return components
+
+    #
+    def create_enhanced_materials(self) -> dict[str, ET.Element]:
+        """
+        Create enhanced materials with textures and visual appeal.
+        Returns a list of material elements.
+        """
+
+        #
+        ### Enhanced robot materials. ###
+        #
+        robot_materials: list[dict[str, str]] = [
+            {
+                'name': 'mat_chassis_beige',
+                'rgba': '0.96 0.87 0.70 1',  # Nice beige color
+                'shininess': '0.3',
+                'specular': '0.5'
+            },
+            {
+                'name': 'mat_wheel_black',
+                'texture': 'tex_wheel_radius',
+                'rgba': '0.1 0.1 0.1 1',
+                'shininess': '0.6',
+                'specular': '0.3'
+            }
+        ]
+
+        #
+        ### Initialize Materials Containers. ###
+        #
+        materials: dict[str, ET.Element] = {}
+
+        #
+        ### Create material elements. ###
+        #
+        for mat_config in robot_materials:
+            #
+            material: ET.Element = ET.Element('material')
+            #
+            mat_name: str = mat_config['name']
+            #
+            material.set('name', mat_name)
+            material.set('rgba', mat_config['rgba'])
+            #
+            if 'texture' in mat_config:
+                #
+                material.set('texture', mat_config['texture'])
+            #
+            if 'shininess' in mat_config:
+                #
+                material.set('shininess', mat_config['shininess'])
+            #
+            if 'specular' in mat_config:
+                #
+                material.set('specular', mat_config['specular'])
+            #
+            if 'texrepeat' in mat_config:
+                #
+                material.set('texrepeat', mat_config['texrepeat'])
+
+            #
+            materials[mat_name] = material
+
+        #
+        return materials
+
+    #
+    def create_textures(self) -> dict[str, ET.Element]:
+        """
+        Create texture elements for enhanced visuals.
+        Returns a list of texture elements.
+        """
+
+        #
+        textures: dict[str, ET.Element] = {}
+
+        #
+        ### Wheel radius texture to show rotation. ###
+        #
+        wheel_texture = ET.Element('texture')
+        #
+        wheel_texture.set('name', 'tex_wheel_radius')
+        wheel_texture.set('type', '2d')
+        wheel_texture.set('builtin', 'checker')
+        wheel_texture.set('rgb1', '0.8 0.2 0.2')  # Red spoke
+        wheel_texture.set('rgb2', '0.1 0.1 0.1')  # Black tire
+        wheel_texture.set('width', '32')
+        wheel_texture.set('height', '32')
+        wheel_texture.set('mark', 'random')
+        wheel_texture.set('markrgb', '0.8 0.8 0.2')  # Yellow marks
+        #
+        textures["tex_wheel_radius"] = wheel_texture
+
+        #
+        return textures
+
+    #
+    def enhance_robot_visuals(self, robot_body: Optional[ET.Element]) -> None:
+        """
+        Enhance robot body with better materials and visual features.
+        Also adjusts wheel positions to be outside the robot body.
+        Modifies the robot body XML element in place.
+        """
+
+        #
+        if robot_body is None:
+            #
+            return
+
+        #
+        print("Enhancing robot visuals...")
+
+        #
+        ### Find and update chassis material. ###
+        #
+        for geom in robot_body.iter('geom'):
+            #
+            if geom.get('name') == 'chassis':
+                #
+                geom.set('material', 'mat_chassis_beige')
+                #
+                print("  Updated chassis to beige color")
+
+        #
+        ### Find and update wheel materials (positions now defined in XML). ###
+        #
+        wheel_count = 0
+
+        #
+        for body in robot_body.iter('body'):
+            #
+            body_name = body.get('name', '')
+            #
+            if body_name.startswith('wheel_'):
+                #
+                ### Update wheel material. ###
+                #
+                for geom in body.iter('geom'):
+                    #
+                    if geom.get('name', '').startswith('geom_'):
+                        #
+                        geom.set('material', 'mat_wheel_black')
+                        #
+                        wheel_count += 1
+
+                #
+                ### Log the wheel position (already set in XML). ###
+                #
+                current_pos = body.get('pos', '0 0 0')
+                #
+                print(f"  {body_name} at position: {current_pos}")
+
+        #
+        print(f"  Updated {wheel_count} wheels with textured black material")
+        print("  Wheel positions defined in XML (no runtime modification)")
+
+
+#
+class RootWorldScene:
+
+    #
+    def __init__(self) -> None:
+
+        #
+        self.corridor: Corridor = Corridor()
+        #
+        self.robot: Robot = Robot()
+
+        #
+        self.mujoco_model: mujoco.MjModel
+        self.mujoco_data: mujoco.MjData
+
+
+    #
+    def build_combined_model(
+        self,
+        robot_components: dict[str, Optional[ET.Element]],
+        corridor_components: dict[str, Optional[ET.Element]],
+        floor_type: str = "standard",
+        robot_height: float = 1.0
+    ) -> mujoco.MjModel:
+
+        """
+        Build a complete MuJoCo model by combining robot components with programmatic floor.
+        Environment controls physics settings (gravity, timestep, etc).
+
+        Args:
+            robot_components: Extracted robot parts from XML
+            floor_type: Type of floor to create ("standard", "ice", "sand")
+            robot_height: Starting height of robot above floor (meters)
+        """
+
+        #
+        print("Building combined model...")
+        print(f"Robot starting height: {robot_height}m above floor")
+
+        #
+        ### Create root mujoco element. ###
+        #
+        root: ET.Element = ET.Element('mujoco')
+        #
+        root.set('model', 'robot_with_programmatic_floor')
+
+        #
+        ### Add compiler settings from robot XML. ###
+        #
+        if robot_components['compiler'] is not None:
+            #
+            root.append(robot_components['compiler'])
+
+        #
+        ### CREATE ENVIRONMENT-CONTROLLED PHYSICS SETTINGS. ###
+        #
+        option: ET.Element = ET.Element('option')
+        #
+        option.set('timestep', '0.001')
+        option.set("gravity", "0 0 -0.20")
+        option.set('solver', 'Newton')
+        option.set('iterations', '500')
+        #
+        root.append(option)
+        #
+        print(f"  Environment physics: gravity enabled ({option.get("gravity")}), timestep={option.get("timestep")}s")
+
+        #
+        ### Add size settings. ###
+        #
+        size: ET.Element = ET.Element('size')
+        #
+        size.set('njmax', '1000')
+        size.set('nconmax', '500')
+        #
+        root.append(size)
+
+        #
+        if robot_components['default'] is not None:
+            #
+            root.append(robot_components['default'])
+
+        #
+        ### Create asset section with textures and enhanced materials. ###
+        #
+        asset: ET.Element = ET.Element('asset')
+
+        #
+        ### Add textures first. ###
+        #
+        _texture_id: str
+        texture: ET.Element
+        #
+        for _texture_id, texture in self.robot.create_textures().items():
+            #
+            asset.append(texture)
+
+        #
+        ### Add enhanced materials. ###
+        #
+        _material_id: str
+        material: ET.Element
+        #
+        enhanced_materials: dict[str, ET.Element] = self.robot.create_enhanced_materials()
+        #
+        materials_used: set[str] = set()
+        #
+        for _material_id, material in enhanced_materials.items():
+            #
+            asset.append(material)
+            #
+            materials_used.add(_material_id)
+
+        #
+        ### Also keep any original materials from robot XML if they don't exist. ###
+        #
+        if robot_components['asset'] is not None:
+            #
+            for original_material in robot_components['asset']:
+                #
+                ### Only add if it's not already in our enhanced materials. ###
+                #
+                material_name = original_material.get('name', '')
+                #
+                if material_name not in enhanced_materials and material_name not in materials_used:
+                    #
+                    asset.append(original_material)
+                    #
+                    materials_used.add(material_name)
+
+        #
+        ### Also keep any original materials from robot XML if they don't exist. ###
+        #
+        if corridor_components['asset'] is not None:
+            #
+            for original_material in corridor_components['asset']:
+                #
+                ### Only add if it's not already in our enhanced materials. ###
+                #
+                material_name = original_material.get('name', '')
+                #
+                if material_name not in enhanced_materials and material_name not in materials_used:
+                    #
+                    asset.append(original_material)
+                    #
+                    materials_used.add(material_name)
+
+        #
+        root.append(asset)
+
+        #
+        ### Create worldbody with corridor and robot. ###
+        #
+        worldbody: ET.Element = ET.Element('worldbody')
+
+        #
+        ### Add a global floor to the world body. ###
+        #
+        floor_geom = ET.Element('geom')
+        #
+        floor_geom.set('name', 'dynamic_floor')
+        floor_geom.set('type', 'plane')
+        floor_geom.set('size', '100 100 0.1')
+        floor_geom.set('pos', '0 0 0.1')
+        #
+        worldbody.append(floor_geom)
+
+
+        #
+        ### Add all the corridor worldbody to this worldbody. ###
+        #
+        if corridor_components['body'] is not None:
+            #
+            body: ET.Element
+            #
+            for body in corridor_components['body']:
+                #
+                worldbody.append(body)
+
+        #
+        ### Add robot body with enhanced visuals and adjusted height. ###
+        #
+        if robot_components['robot_body'] is not None:
+
+            #
+            ### Enhance the robot's visual appearance. ###
+            #
+            self.robot.enhance_robot_visuals(robot_components['robot_body'])
+
+            #
+            ### Adjust robot starting height (floor is at -0.1, so robot center should be at robot_height - 0.1). ###
+            #
+            robot_z_position: float = robot_height - 0.1 + 10  # Floor offset
+            current_pos: str = robot_components['robot_body'].get('pos', '0 0 0.2')
+            #
+            pos_parts: list[str] = current_pos.split()
+            #
+            if len(pos_parts) == 3:
+                #
+                new_pos: str = f"{pos_parts[0]} {pos_parts[1]} {robot_z_position}"
+                #
+                robot_components['robot_body'].set('pos', new_pos)
+                #
+                print(f"  Robot positioned at: {new_pos} (will fall {robot_height}m to floor)")
+
+            #
+            robot_components['robot_body'].set('pos', "0 0 5")
+            robot_components['robot_body'].set('euler', "0 0 0")
+
+            #
+            worldbody.append(robot_components['robot_body'])
+
+        #
+        ### Add worldbody to root. ###
+        #
+        root.append( worldbody )
+
+        #
+        ### Add actuators. ###
+        #
+        if robot_components['actuators'] is not None:
+            #
+            root.append(robot_components['actuators'])
+
+        #
+        ### Convert to XML string. ###
+        #
+        xml_string = ET.tostring(root, encoding='unicode')
+
+        #
+        ### Create and return MuJoCo model. ###
+        #
+        return mujoco.MjModel.from_xml_string(xml_string)
+
+
+    #
+    def construct_scene(
+        self,
+        floor_type: str = "standard",
+        robot_height: float = 1.0
+    ) -> None:
+
+        #
+        ### Build combined model with enhanced visuals and physics. ###
+        #
+        self.mujoco_model = self.build_combined_model(
+            robot_components=self.robot.extract_robot_from_xml(),
+            corridor_components=self.corridor.extract_corridor_from_xml(),
+            floor_type=floor_type,
+            robot_height=robot_height
+        )
+        #
+        self.mujoco_data = mujoco.MjData(self.mujoco_model)
+
+
+#
+class Physics:
+
+    #
+    def __init__(
+        self,
+        mujoco_model_scene: mujoco.MjModel,
+        mujoco_data_scene: mujoco.MjData,
+        air_drag_coefficient: float = 0.5,
+        robot_deceleration_force: float = 0.01
+    ) -> None:
+
+        #
+        self.model_scene: mujoco.MjModel = mujoco_model_scene
+        self.data_scene: mujoco.MjData = mujoco_data_scene
+
+        #
+        self.air_drag_coefficient: float = air_drag_coefficient
+
+        #
+        self.robot_deceleration_force: float = robot_deceleration_force
+        self.robot_deceleration_factor: float = 1.0 - self.robot_deceleration_force
+
+        #
+        ### Initialize simulation with zero velocities for stability. ###
+        #
+        self.data_scene.qvel[:] = 0  # Zero all velocities
+        self.data_scene.qacc[:] = 0  # Zero all accelerations
+
+        #
+        ### Initialize wheels speed. ###
+        #
+        self.robot_wheels_speed: NDArray[np.float64] = np.zeros((4,), dtype=np.float64)
+
+    #
+    def apply_air_resistance(self) -> None:
+        """
+        Applies air drag to all bodies based on their velocity.
+        F_drag = -k * v^2 * sign(v)
+        """
+
+        #
+        for i in range(self.model_scene.nbody):
+
+            #
+            ### Skip world body. ###
+            #
+            if i == 0:
+                #
+                continue
+
+            #
+            ### Get linear velocity of body i. ###
+            #
+            ### translational velocity. ###
+            #
+            vel = self.data_scene.cvel[i][:3]
+            #
+            speed = np.linalg.norm(vel)
+            #
+            if speed < 1e-6:
+                #
+                continue
+
+            #
+            ### Simple quadratic drag model: F = -k * v * |v|. ###
+            #
+            F_drag = -self.air_drag_coefficient * speed * vel
+
+            #
+            ### Allocate full-sized qfrc_target vector (size nv). ###
+            #
+            qfrc_target = np.zeros(self.model_scene.nv)
+
+            #
+            ### Apply the force at the center of mass. ###
+            #
+            mujoco.mj_applyFT(
+                m=self.model_scene,
+                d=self.data_scene,
+                force=F_drag,
+                torque=np.zeros(3),
+                point=self.data_scene.xpos[i],
+                body=i,
+                qfrc_target=qfrc_target
+            )
+
+    #
+    def apply_additionnal_physics(self) -> None:
+
+        #
+        self.apply_air_resistance()
+
+        #
+        self.apply_robot_deceleration()
+
+        #
+        self.set_robot_wheel_speeds()
+
+    #
+    def apply_robot_ctrl_movement(
+        self,
+        acceleration_factor: float = 0.0,
+        rotation_factor: float = 0.0,
+        acceleration_force: float = 0.1,
+        rotation_force: float = 0.5,
+        decceleration_factor: float = 1.0,
+        max_front_wheel_speeds: float = 10.0,
+        max_back_wheel_speeds: float = 2.5,
+    ) -> None:
+
+        #
+        if acceleration_factor > 0:
+            #
+            self.robot_wheels_speed[0] += acceleration_factor * acceleration_force
+            self.robot_wheels_speed[1] += acceleration_factor * acceleration_force
+            self.robot_wheels_speed[2] += acceleration_factor * acceleration_force * 0.1
+            self.robot_wheels_speed[3] += acceleration_factor * acceleration_force * 0.1
+            #
+            self.robot_wheels_speed[0] -= rotation_factor * rotation_force
+            self.robot_wheels_speed[1] += rotation_factor * rotation_force
+            self.robot_wheels_speed[2] -= rotation_factor * rotation_force * 0.1
+            self.robot_wheels_speed[3] += rotation_factor * rotation_force * 0.1
+        #
+        else:
+            #
+            self.robot_wheels_speed[0] += acceleration_factor * acceleration_force * 0.1
+            self.robot_wheels_speed[1] += acceleration_factor * acceleration_force * 0.1
+            self.robot_wheels_speed[2] += acceleration_factor * acceleration_force
+            self.robot_wheels_speed[3] += acceleration_factor * acceleration_force
+            #
+            self.robot_wheels_speed[0] -= rotation_factor * rotation_force * 0.1
+            self.robot_wheels_speed[1] += rotation_factor * rotation_force * 0.1
+            self.robot_wheels_speed[2] -= rotation_factor * rotation_force
+            self.robot_wheels_speed[3] += rotation_factor * rotation_force
+
+        #
+        if decceleration_factor < 1.0:
+            #
+            self.robot_wheels_speed[:] *= decceleration_factor
+
+        #
+        ### Clamp values. ###
+        #
+        self.robot_wheels_speed[0:2] = np.clip(self.robot_wheels_speed[0:2], -max_front_wheel_speeds, max_front_wheel_speeds)
+        self.robot_wheels_speed[2:5] = np.clip(self.robot_wheels_speed[2:5], -max_back_wheel_speeds, max_back_wheel_speeds)
+
+    #
+    def apply_robot_deceleration(self) -> None:
+
+        #
+        self.robot_wheels_speed[:] *= self.robot_deceleration_factor
+
+    #
+    def set_robot_wheel_speeds(self) -> None:
+
+        #
+        ### This will set the actuator values. ###
+        #
+        self.data_scene.ctrl = self.robot_wheels_speed
+
+
+#
+class Camera:
+
+    #
+    def __init__(self) -> None:
+
+        #
+        ### Modes: "free", "follow_robot", "top_down" ###
+        #
+        self.current_mode: str = "free"
+
+        #
+        ### Store robot ID to avoid looking it up every frame. ###
+        #
+        self.robot_id: int = -1
+
+    #
+    def set_mode(self, mode: str) -> None:
+        #
+        if mode in ["free", "follow_robot", "top_down"]:
+            #
+            self.current_mode = mode
+            #
+            print(f"Camera mode set to: {self.current_mode}")
+        #
+        else:
+            #
+            print(f"Unknown camera mode: {mode}")
+
+    #
+    def update_viewer_camera(
+        self,
+        cam: Any,  # viewer_instance.cam
+        model: mujoco.MjModel,
+        data: mujoco.MjData
+    ) -> None:
+
+        #
+        ### Get robot ID once. ###
+        #
+        if self.robot_id == -1:
+            #
+            self.robot_id = mujoco.mj_name2id(
+                model, mujoco.mjtObj.mjOBJ_BODY, "robot"
+            )
+            #
+            if self.robot_id == -1:
+                #
+                print("Warning: Could not find robot body named 'robot'")
+                #
+                return
+
+        #
+        ### Handle camera logic based on mode. ###
+        #
+        if self.current_mode == "free":
+            #
+            ### Set camera to free mode and do nothing else. ###
+            #
+            ### This lets the user control it manually with the mouse. ###
+            #
+            if cam.type != mujoco.mjtCamera.mjCAMERA_FREE:
+                #
+                cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+
+        #
+        elif self.current_mode == "follow_robot":
+            #
+            ### Use MuJoCo's built-in tracking camera. ###
+            #
+            cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
+            cam.trackbodyid = self.robot_id
+            #
+            ### You can set preferred distance and elevation. ###
+            #
+            cam.distance = 5.0
+            cam.elevation = -16
+            cam.azimuth = 1.01171875
+            #
+
+        #
+        elif self.current_mode == "top_down":
+            #
+            ### Use tracking camera, but point straight down. ###
+            #
+            cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
+            cam.trackbodyid = self.robot_id
+            #
+            cam.distance = 10.0      # Zoom out
+            cam.azimuth = 90.0       # Face "north"
+            cam.elevation = -89.9    # Look almost straight down
+
+
+#
+class Controls:
+
+    #
+    def __init__(
+        self,
+        physics: Physics,
+        camera: Camera
+    ) -> None:
+
+        #
+        self.physics: Physics = physics
+        self.camera: Camera = camera
+
+        #
+        self.quit_requested: bool = False
+        self.display_camera_info: bool = False
+
+        #
+        self.key_pressed: set[int] = set()
+
+        #
+        self.window: Optional[Any] = None  # <-- we'll store the GLFW window handle
+
+    #
+    def apply_controls_each_frame(self) -> None:
+
+        #
+        ### Robot Movements. ###
+        #
+        ### Forward. ###
+        #
+        if 265 in self.key_pressed:
+            #
+            self.physics.apply_robot_ctrl_movement(acceleration_factor=1.0)
+        #
+        ### Turn Left. ###
+        #
+        elif 263 in self.key_pressed:
+            #
+            self.physics.apply_robot_ctrl_movement(rotation_factor=1.0)
+        #
+        ### Turn Right. ###
+        #
+        elif 262 in self.key_pressed:
+            #
+            self.physics.apply_robot_ctrl_movement(rotation_factor=-1.0)
+        #
+        ### Backward. ###
+        #
+        elif 264 in self.key_pressed:
+            #
+            self.physics.apply_robot_ctrl_movement(acceleration_factor=-1.0)
+        #
+        ### Space Key, robot stops. ###
+        #
+        elif 32 in self.key_pressed:
+            #
+            self.physics.apply_robot_ctrl_movement(decceleration_factor=0.2)
+
+    #
+    def key_callback(self, keycode: int) -> None:
+
+        #
+        ### Display Camera Informations. ###
+        #
+        if keycode == ord('c') or keycode == ord('C'):
+            #
+            self.display_camera_info = True
+            #
+            print(f"DEBUG")
+
+        #
+        ### Camera Mode Switching. ###
+        #
+        if keycode == ord('1'):
+            #
+            self.camera.set_mode("free")
+        #
+        elif keycode == ord('2'):
+            #
+            self.camera.set_mode("follow_robot")
+        #
+        elif keycode == ord('3'):
+            #
+            self.camera.set_mode("top_down")
+
+        #
+        ### Quit, with 'Q' or 'Esc' Keys. ###
+        #
+        elif keycode == ord('q') or keycode == ord('Q'):
+            #
+            self.quit_requested = True
+        #
+        elif keycode == 256:
+            #
+            self.quit_requested = True
+
+        #
+        else:
+            #
+            if keycode in self.key_pressed:
+                #
+                self.key_pressed.remove(keycode)
+            #
+            else:
+                #
+                self.key_pressed.add(keycode)
+
+
+#
+class Main:
+
+    #
+    @staticmethod
+    def main() -> None:
+
+        #
+        root_scene: RootWorldScene = RootWorldScene()
+        #
+        root_scene.construct_scene(
+            floor_type="standard",
+            robot_height=1.0
+        )
+
+        #
+        physics: Physics = Physics(
+            mujoco_model_scene=root_scene.mujoco_model,
+            mujoco_data_scene=root_scene.mujoco_data
+        )
+
+        #
+        camera: Camera = Camera()
+
+        #
+        controls: Controls = Controls(
+            physics=physics,
+            camera=camera
+        )
+
+        #
+        print("Controls:")
+        print("  '1': Free camera (mouse control)")
+        print("  '2': Follow robot (3rd person)")
+        print("  '3': Top-down camera")
+        print("  'c' or 'C': Print camera parameters")
+        print("  'q' or 'Q': Quit")
+        print("  ESC: Quit")
+
+        #
+        viewer_instance: Any
+
+        #
+        with viewer.launch_passive(
+                root_scene.mujoco_model,
+                root_scene.mujoco_data,
+                key_callback=controls.key_callback  # This is very limited and reacts only to keydown events and not keyup events
+            ) as viewer_instance:
+
+            #
+            ### Configure camera parameters with your good settings. ###
+            #
+            cam: Any = viewer_instance.cam
+
+            #
+            ### Camera parameters. ###
+            #
+            cam.type = mujoco.mjtCamera.mjCAMERA_FREE   # Free camera
+            cam.fixedcamid = -1                         # Not using fixed camera
+
+            #
+            ## Set good camera position and orientation parameters. ###
+            #
+            cam.azimuth = 1.01171875
+            cam.elevation = -16.6640625
+            cam.lookat = np.array(
+                [ 1.55633679e-04, -4.88295545e-02,  1.05485916e+00]
+            )
+
+            #
+            ### Mainloop. ###
+            #
+            while viewer_instance.is_running():
+
+                #
+                controls.apply_controls_each_frame()
+
+                #
+                ### Quit if requested. ###
+                #
+                if controls.quit_requested:
+                    #
+                    break
+
+                #
+                ### Print camera info when requested. ###
+                #
+                if controls.display_camera_info:
+                    #
+                    print(cam)
+                    #
+                    robot_id: int = mujoco.mj_name2id(
+                        root_scene.mujoco_model, mujoco.mjtObj.mjOBJ_BODY, "robot"
+                    )
+                    #
+                    pos: float | np.typing.NDArray[np.float32] = root_scene.mujoco_data.xpos[robot_id]
+                    quat: float | np.typing.NDArray[np.float32] = root_scene.mujoco_data.xquat[robot_id]
+                    #
+                    print(f"Robot position: {pos}")
+                    print(f"Robot orientation (quat): {quat}")
+                    #
+                    controls.display_camera_info = False
+
+                #
+                physics.apply_additionnal_physics()
+
+                #
+                mujoco.mj_step(
+                    m=root_scene.mujoco_model,
+                    d=root_scene.mujoco_data,
+                    nstep=1
+                )
+
+                #
+                camera.update_viewer_camera(
+                    cam=viewer_instance.cam,
+                    model=root_scene.mujoco_model,
+                    data=root_scene.mujoco_data
+                )
+
+                #
+                viewer_instance.sync()
+
+
+#
+if __name__ == "__main__":
+    #
+    Main.main()
