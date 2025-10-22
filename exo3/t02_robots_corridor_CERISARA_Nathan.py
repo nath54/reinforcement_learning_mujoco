@@ -185,7 +185,7 @@ class Robot:
         #
         robot_materials: list[dict[str, str]] = [
             {
-                'name': 'mat_chassis_beige',
+                'name': 'mat_chassis_violet',
                 'texture': 'tex_chassis',
                 'rgba': '0.39 0.13 0.63 1',  # Nice violet color
                 'shininess': '0.3',
@@ -307,7 +307,7 @@ class Robot:
             #
             if 'chassis' in geom.get('name', ''):
                 #
-                geom.set('material', 'mat_chassis_beige')
+                geom.set('material', 'mat_chassis_violet')
                 #
                 print("  Updated chassis color")
 
@@ -862,12 +862,16 @@ class Controls:
     def __init__(
         self,
         physics: Physics,
-        camera: Camera
+        camera: Camera,
+        render_mode: bool = False
     ) -> None:
 
         #
         self.physics: Physics = physics
         self.camera: Camera = camera
+
+        #
+        self.render_mode: bool = render_mode
 
         #
         self.quit_requested: bool = False
@@ -877,10 +881,25 @@ class Controls:
         self.key_pressed: set[int] = set()
 
         #
-        self.window: Optional[Any] = None  # <-- we'll store the GLFW window handle
+        self.controls_history: list[
+            tuple[  list[Any],
+                    tuple[NDArray[np.float64], float, float, float]  # Camera info (lookat, distance, elevation, azimut)
+            ]
+        ] = []
+
+    #
+    def apply_controls_each_frame_render_mode(self) -> None:
+
+        #
+        pass
 
     #
     def apply_controls_each_frame(self) -> None:
+
+        #
+        if self.render_mode:
+            #
+            return self.apply_controls_each_frame_render_mode()
 
         #
         ### Robot Movements. ###
@@ -917,6 +936,11 @@ class Controls:
 
     #
     def key_callback(self, keycode: int) -> None:
+
+        #
+        if self.render_mode:
+            #
+            return
 
         #
         ### Display Camera Informations. ###
