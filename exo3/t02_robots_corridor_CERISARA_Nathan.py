@@ -3,6 +3,15 @@
 #
 from typing import Any, Optional, cast
 #
+import os
+import json
+import argparse
+#
+### Set environment variable to indicate mujoco to use GPU rendering. ###
+#
+os.environ["MUJOCO_GL"] = "egl"
+
+#
 import mujoco
 from mujoco import viewer as viewer_  # type: ignore
 #
@@ -10,9 +19,24 @@ import xml.etree.ElementTree as ET
 #
 import numpy as np
 from numpy.typing import NDArray
+#
+from tqdm import tqdm
+
+#
+### Graphics and plotting. ###
+#
+import mediapy as media
 
 #
 viewer: Any = cast(Any, viewer_)  # fix to remove pylance type hinting errors with mujoco.viewer stubs errors
+
+
+#
+CTRL_SAVE_PATH: str = "saved_control.json"
+
+#
+RENDER_WIDTH: int = 1440
+RENDER_HEIGHT: int = 1024
 
 
 #
@@ -390,6 +414,17 @@ class RootWorldScene:
         root: ET.Element = ET.Element('mujoco')
         #
         root.set('model', 'robot_with_programmatic_floor')
+
+        #
+        g: ET.Element = ET.Element('global')
+        g.set("offwidth", str(RENDER_WIDTH))
+        g.set("offheight", str(RENDER_HEIGHT))
+        #
+        visual: ET.Element = ET.Element("visual")
+        #
+        visual.append(g)
+        #
+        root.append(visual)
 
         #
         ### Add compiler settings from robot XML. ###
@@ -854,6 +889,12 @@ class Camera:
             cam.azimuth = 90.0       # Face "north"
             cam.elevation = -89.9    # Look almost straight down
 
+    #
+    def get_camera_data(self, cam: Any) -> tuple[ NDArray[np.float64], float, float, float, int, Any ]:
+
+        #
+        return (cam.lookat, cam.distance, cam.azimuth, cam.elevation, cam.trackbodyid, cam.type)
+
 
 #
 class Controls:
@@ -881,17 +922,29 @@ class Controls:
         self.key_pressed: set[int] = set()
 
         #
-        self.controls_history: list[
-            tuple[  list[Any],
-                    tuple[NDArray[np.float64], float, float, float]  # Camera info (lookat, distance, elevation, azimut)
-            ]
-        ] = []
+        self.controls_history: dict[ str, list[int] ] = {}
+
+        #
+        self.current_frame: int = 0
+
+    #
+    def new_frame(self, cam: Any) -> None:
+
+        #
+        self.current_frame += 1
 
     #
     def apply_controls_each_frame_render_mode(self) -> None:
 
         #
-        pass
+        if str(self.current_frame) in self.controls_history:
+            #
+            print(f"Current frame = {self.current_frame} in control history !")
+            #
+            for k in self.controls_history[str(self.current_frame)]:
+                #
+                self.key_callback(keycode=k, render_mode=True)
+
 
     #
     def apply_controls_each_frame(self) -> None:
@@ -899,7 +952,7 @@ class Controls:
         #
         if self.render_mode:
             #
-            return self.apply_controls_each_frame_render_mode()
+            self.apply_controls_each_frame_render_mode()
 
         #
         ### Robot Movements. ###
@@ -935,21 +988,57 @@ class Controls:
             self.physics.apply_robot_ctrl_movement(decceleration_factor=0.2)
 
     #
-    def key_callback(self, keycode: int) -> None:
+    def key_callback(self, keycode: int, render_mode: bool = False) -> None:
 
         #
-        if self.render_mode:
+        print(f"Key_callback(key_code={keycode}, render_mode={render_mode})")
+
+        #
+        if not render_mode:
+            #
+            if not str(self.current_frame) in self.controls_history:
+                #
+                self.controls_history[str(self.current_frame)] = [keycode]
+            #
+            else:
+                #
+                self.controls_history[str(self.current_frame)].append(keycode)
+
+            #
+            ### Display Camera Informations. ###
+            #
+            if keycode == ord('c') or keycode == ord('C'):
+                #
+                self.display_camera_info = True
+                #
+                print(f"DEBUG")
+
+            #
+            ### Save the control history. ###
+            #
+            elif keycode == ord('s') or keycode == ord('S'):
+                #
+                with open(CTRL_SAVE_PATH, "w", encoding="utf-8") as f:
+                    #
+                    json.dump(self.controls_history, f)
+                #
+                print(f"Saved control history at path : `{CTRL_SAVE_PATH}` !")
+
+            #
+            ### Quit, with 'Q' or 'Esc' Keys. ###
+            #
+            elif keycode == ord('q') or keycode == ord('Q'):
+                #
+                self.quit_requested = True
+            #
+            elif keycode == 256:
+                #
+                self.quit_requested = True
+
+        #
+        if self.render_mode and not render_mode:
             #
             return
-
-        #
-        ### Display Camera Informations. ###
-        #
-        if keycode == ord('c') or keycode == ord('C'):
-            #
-            self.display_camera_info = True
-            #
-            print(f"DEBUG")
 
         #
         ### Camera Mode Switching. ###
@@ -965,17 +1054,6 @@ class Controls:
         elif keycode == ord('3'):
             #
             self.camera.set_mode("top_down")
-
-        #
-        ### Quit, with 'Q' or 'Esc' Keys. ###
-        #
-        elif keycode == ord('q') or keycode == ord('Q'):
-            #
-            self.quit_requested = True
-        #
-        elif keycode == 256:
-            #
-            self.quit_requested = True
 
         #
         else:
@@ -994,7 +1072,7 @@ class Main:
 
     #
     @staticmethod
-    def main() -> None:
+    def main(render_mode: bool = False) -> None:
 
         #
         root_scene: RootWorldScene = RootWorldScene()
@@ -1016,17 +1094,36 @@ class Main:
         #
         controls: Controls = Controls(
             physics=physics,
-            camera=camera
+            camera=camera,
+            render_mode=render_mode
         )
 
         #
+        if render_mode:
+            #
+            if not os.path.exists(CTRL_SAVE_PATH):
+                #
+                raise UserWarning(f"Error: there is no saved control files at path `{CTRL_SAVE_PATH}` !")
+
+            #
+            with open(CTRL_SAVE_PATH, "r", encoding="utf-8") as f:
+                #
+                controls.controls_history = json.load(f)
+
+        #
+        print("")
         print("Controls:")
+        print("  'up arrow': Robot goes forward (key control)")
+        print("  'down arrow': Robot goes backward (key control)")
+        print("  'left arrow': Robot goes left (key control)")
+        print("  'right arrow': Robot goes right (key control)")
         print("  '1': Free camera (mouse control)")
         print("  '2': Follow robot (3rd person)")
         print("  '3': Top-down camera")
         print("  'c' or 'C': Print camera parameters")
         print("  'q' or 'Q': Quit")
         print("  ESC: Quit")
+        print("")
 
         #
         viewer_instance: Any
@@ -1035,7 +1132,7 @@ class Main:
         with viewer.launch_passive(
                 root_scene.mujoco_model,
                 root_scene.mujoco_data,
-                key_callback=controls.key_callback  # This is very limited and reacts only to keydown events and not keyup events
+                key_callback=controls.key_callback
             ) as viewer_instance:
 
             #
@@ -1062,6 +1159,9 @@ class Main:
             ### Mainloop. ###
             #
             while viewer_instance.is_running():
+
+                #
+                controls.new_frame(cam)
 
                 #
                 controls.apply_controls_each_frame()
@@ -1113,7 +1213,145 @@ class Main:
                 viewer_instance.sync()
 
 
+
+    #
+    @staticmethod
+    def main_video_render() -> None:
+
+        #
+        root_scene: RootWorldScene = RootWorldScene()
+        #
+        root_scene.construct_scene(
+            floor_type="standard",
+            robot_height=1.0
+        )
+
+        #
+        physics: Physics = Physics(
+            mujoco_model_scene=root_scene.mujoco_model,
+            mujoco_data_scene=root_scene.mujoco_data
+        )
+
+        #
+        camera: Camera = Camera()
+
+        #
+        controls: Controls = Controls(
+            physics=physics,
+            camera=camera,
+            render_mode=True
+        )
+
+        #
+        if not os.path.exists(CTRL_SAVE_PATH):
+            #
+            raise UserWarning(f"Error: there is no saved control files at path `{CTRL_SAVE_PATH}` !")
+
+        #
+        with open(CTRL_SAVE_PATH, "r", encoding="utf-8") as f:
+            #
+            controls.controls_history = json.load(f)
+
+        #
+        ### Create a camera. ###
+        #
+        cam = mujoco.MjvCamera()
+        mujoco.mjv_defaultCamera(cam)
+
+        #
+        ### Camera parameters. ###
+        #
+        cam.type = mujoco.mjtCamera.mjCAMERA_FREE   # Free camera
+        cam.fixedcamid = -1                         # Not using fixed camera
+
+        #
+        ## Set good camera position and orientation parameters. ###
+        #
+        cam.azimuth = 1.01171875
+        cam.elevation = -16.6640625
+        cam.lookat = np.array(
+            [ 1.55633679e-04, -4.88295545e-02,  1.05485916e+00]
+        )
+
+
+        #
+        ### Set up parameters. ###
+        #
+        framerate: int = 60  # (Hz)
+        #
+        skip_factor: int = framerate
+        #
+        n_frames: int = max([int(f_id) for f_id in controls.controls_history.keys()])
+
+        #
+        ### Simulate and display video. ###
+        #
+        mujoco.mj_resetData(root_scene.mujoco_model, root_scene.mujoco_data)
+
+        #
+        with media.VideoWriter('tmp3.mp4', shape=(RENDER_HEIGHT, RENDER_WIDTH), fps=framerate) as writer:
+            #
+            with mujoco.Renderer(root_scene.mujoco_model, RENDER_HEIGHT, RENDER_WIDTH) as renderer:  # type: ignore
+
+                #
+                for frame_idx in tqdm(range(min(2000000, n_frames))):
+
+                    #
+                    controls.new_frame(cam)
+
+                    #
+                    controls.apply_controls_each_frame()
+
+                    #
+                    ### Quit if requested. ###
+                    #
+                    if controls.quit_requested:
+                        #
+                        break
+
+                    #
+                    physics.apply_additionnal_physics()
+
+                    #
+                    mujoco.mj_step(
+                        m=root_scene.mujoco_model,
+                        d=root_scene.mujoco_data,
+                        nstep=1
+                    )
+
+                    #
+                    camera.update_viewer_camera(
+                        cam=cam,
+                        model=root_scene.mujoco_model,
+                        data=root_scene.mujoco_data
+                    )
+
+                    #
+                    if frame_idx % skip_factor == 0:
+
+                        #
+                        renderer.update_scene(root_scene.mujoco_data, cam)  # type: ignore
+                        #
+                        pixels: NDArray[np.int8] = renderer.render()  # type: ignore
+                        #
+                        writer.add_image(pixels)  # type: ignore
+
+
 #
 if __name__ == "__main__":
     #
-    Main.main()
+    parser: argparse.ArgumentParser = argparse.ArgumentParser()
+    #
+    parser.add_argument('--render_mode', action="store_true", default=False)
+    parser.add_argument('--render_video', action="store_true", default=False)
+    #
+    args: argparse.Namespace = parser.parse_args()
+
+    #
+    if args.render_video:
+        #
+        Main.main_video_render()
+    #
+    else:
+        #
+        Main.main(render_mode=args.render_mode)
