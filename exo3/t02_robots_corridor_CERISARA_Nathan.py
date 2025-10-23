@@ -994,9 +994,6 @@ class Controls:
     def key_callback(self, keycode: int, render_mode: bool = False) -> None:
 
         #
-        print(f"Key_callback(key_code={keycode}, render_mode={render_mode})")
-
-        #
         if not render_mode:
             #
             if not str(self.current_frame) in self.controls_history:
