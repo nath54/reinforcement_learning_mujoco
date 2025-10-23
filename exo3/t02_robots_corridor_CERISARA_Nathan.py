@@ -927,6 +927,9 @@ class Controls:
         #
         self.current_frame: int = 0
 
+        #
+        self.easy_control: set[int] = {32, 262, 263, 264, 265}
+
     #
     def new_frame(self, cam: Any) -> None:
 
@@ -1065,6 +1068,15 @@ class Controls:
             else:
                 #
                 self.key_pressed.add(keycode)
+
+            #
+            if keycode in self.easy_control:
+                #
+                for kk in list(self.key_pressed):
+                    #
+                    if kk != keycode and kk in self.easy_control:
+                        #
+                        self.key_pressed.remove(kk)
 
 
 #
