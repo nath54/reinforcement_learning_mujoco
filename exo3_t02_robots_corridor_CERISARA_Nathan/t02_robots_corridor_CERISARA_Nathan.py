@@ -543,7 +543,7 @@ class RootWorldScene:
         floor_geom.set('name', 'dynamic_floor')
         floor_geom.set('type', 'plane')
         floor_geom.set('size', '100 100 0.1')
-        floor_geom.set('pos', '0 0 0.1')
+        floor_geom.set('pos', '0 0 0.12')
         #
         worldbody.append(floor_geom)
 
@@ -739,11 +739,11 @@ class Physics:
         self,
         acceleration_factor: float = 0.0,
         rotation_factor: float = 0.0,
-        acceleration_force: float = 0.1,
+        acceleration_force: float = 0.15,
         rotation_force: float = 0.5,
         decceleration_factor: float = 1.0,
-        max_front_wheel_speeds: float = 10.0,
-        max_back_wheel_speeds: float = 2.5,
+        max_front_wheel_speeds: float = 200.0,
+        max_back_wheel_speeds: float = 100,
     ) -> None:
 
         #
@@ -751,23 +751,23 @@ class Physics:
             #
             self.robot_wheels_speed[0] += acceleration_factor * acceleration_force
             self.robot_wheels_speed[1] += acceleration_factor * acceleration_force
-            self.robot_wheels_speed[2] += acceleration_factor * acceleration_force * 0.1
-            self.robot_wheels_speed[3] += acceleration_factor * acceleration_force * 0.1
+            self.robot_wheels_speed[2] += acceleration_factor * acceleration_force * 0.2
+            self.robot_wheels_speed[3] += acceleration_factor * acceleration_force * 0.2
             #
             self.robot_wheels_speed[0] -= rotation_factor * rotation_force
             self.robot_wheels_speed[1] += rotation_factor * rotation_force
-            self.robot_wheels_speed[2] -= rotation_factor * rotation_force * 0.1
-            self.robot_wheels_speed[3] += rotation_factor * rotation_force * 0.1
+            self.robot_wheels_speed[2] -= rotation_factor * rotation_force * 0.2
+            self.robot_wheels_speed[3] += rotation_factor * rotation_force * 0.2
         #
         else:
             #
-            self.robot_wheels_speed[0] += acceleration_factor * acceleration_force * 0.1
-            self.robot_wheels_speed[1] += acceleration_factor * acceleration_force * 0.1
+            self.robot_wheels_speed[0] += acceleration_factor * acceleration_force * 0.2
+            self.robot_wheels_speed[1] += acceleration_factor * acceleration_force * 0.2
             self.robot_wheels_speed[2] += acceleration_factor * acceleration_force
             self.robot_wheels_speed[3] += acceleration_factor * acceleration_force
             #
-            self.robot_wheels_speed[0] -= rotation_factor * rotation_force * 0.1
-            self.robot_wheels_speed[1] += rotation_factor * rotation_force * 0.1
+            self.robot_wheels_speed[0] -= rotation_factor * rotation_force * 0.2
+            self.robot_wheels_speed[1] += rotation_factor * rotation_force * 0.2
             self.robot_wheels_speed[2] -= rotation_factor * rotation_force
             self.robot_wheels_speed[3] += rotation_factor * rotation_force
 
@@ -819,12 +819,6 @@ class Camera:
         if mode in ["free", "follow_robot", "top_down"]:
             #
             self.current_mode = mode
-            #
-            print(f"Camera mode set to: {self.current_mode}")
-        #
-        else:
-            #
-            print(f"Unknown camera mode: {mode}")
 
     #
     def update_viewer_camera(
@@ -942,8 +936,6 @@ class Controls:
         #
         if str(self.current_frame) in self.controls_history:
             #
-            print(f"Current frame = {self.current_frame} in control history !")
-            #
             for k in self.controls_history[str(self.current_frame)]:
                 #
                 self.key_callback(keycode=k, render_mode=True)
@@ -1010,8 +1002,6 @@ class Controls:
             if keycode == ord('c') or keycode == ord('C'):
                 #
                 self.display_camera_info = True
-                #
-                print(f"DEBUG")
 
             #
             ### Save the control history. ###
@@ -1298,7 +1288,7 @@ class Main:
         mujoco.mj_resetData(root_scene.mujoco_model, root_scene.mujoco_data)
 
         #
-        with media.VideoWriter('tmp3.mp4', shape=(RENDER_HEIGHT, RENDER_WIDTH), fps=framerate) as writer:
+        with media.VideoWriter('rendered_video.mp4', shape=(RENDER_HEIGHT, RENDER_WIDTH), fps=framerate) as writer:
             #
             with mujoco.Renderer(root_scene.mujoco_model, RENDER_HEIGHT, RENDER_WIDTH) as renderer:  # type: ignore
 
