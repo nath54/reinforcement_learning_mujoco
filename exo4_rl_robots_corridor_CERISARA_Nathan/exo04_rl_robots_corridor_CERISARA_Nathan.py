@@ -6,6 +6,9 @@ from typing import Any, Optional, cast
 import os
 import json
 import argparse
+import random
+#
+from math import floor, sin, pi
 #
 from matplotlib import pyplot as plt
 #
@@ -29,6 +32,47 @@ from tqdm import tqdm
 #
 import mediapy as media
 
+
+
+#
+class Vec3:
+
+    #
+    def __init__(self, x: float, y: float, z: float) -> None:
+
+        #
+        self.x: float = x
+        self.y: float = y
+        self.z: float = z
+
+
+#
+### Custom Value or Interval Type. ###
+#
+class ValType:
+
+    #
+    def __init__(
+        self,
+        from_value: float | tuple[float, float]
+    ) -> None:
+
+        #
+        self.value: float | tuple[float, float] = from_value
+
+    #
+    def get_value(self) -> float:
+
+        #
+        return random.uniform(*self.value) if isinstance(self.value, tuple) else self.value
+
+    #
+    def get_max_value(self) -> float:
+
+        #
+        return max(*self.value) if isinstance(self.value, tuple) else self.value
+
+
 #
 viewer: Any = cast(Any, viewer_)  # fix to remove pylance type hinting errors with mujoco.viewer stubs errors
 
@@ -39,6 +83,34 @@ CTRL_SAVE_PATH: str = "saved_control.json"
 #
 RENDER_WIDTH: int = 1440
 RENDER_HEIGHT: int = 1024
+
+#
+GENERATE_CORRIDOR_PARAM: dict[str, Any] = {
+    "corridor_length": ValType(100.0),
+    "corridor_width": ValType(3.0),
+    "obstacles_mode": "sinusoidal",
+    "obstacles_mode_param": {
+        "obstacle_sep": ValType( 4.0 ),
+        "obstacle_size_x": ValType( 0.4 ),
+        "obstacle_size_y": ValType( 0.4 ),
+        "obstacle_size_z": ValType( 0.2 ),
+    }
+}
+
+
+#
+def create_geom(name: str, geom_type: str, pos: Vec3, size: Vec3) -> ET.Element:
+
+    #
+    new_geom = ET.Element('geom')
+    #
+    new_geom.set('name', name)
+    new_geom.set('type', geom_type)
+    new_geom.set('size', f'{size.x} {size.y} {size.z}')
+    new_geom.set('pos', f'{pos.x} {pos.y} {pos.z}')
+
+    #
+    return new_geom
 
 
 #
@@ -81,6 +153,18 @@ class Corridor:
         comps_body: list[ET.Element] = []
 
         #
+        ## Add global scene ground. ##
+        #
+        floor_geom = ET.Element('geom')
+        #
+        floor_geom.set('name', 'global_floor')
+        floor_geom.set('type', 'plane')
+        floor_geom.set('size', '200 200 0.1')
+        floor_geom.set('pos', '0 0 0.12')
+        #
+        comps_body.append(floor_geom)
+
+        #
         ### Find and extract each component. ###
         #
         for child in root:
@@ -112,6 +196,153 @@ class Corridor:
             elif child.tag == 'actuator':
                 #
                 components['actuators'] = child
+
+        #
+        return components
+
+    #
+    def generate_corridor(
+        self,
+        corridor_length: ValType = ValType(100.0),              # Value, or random in [min_value, max_value]
+        corridor_width: ValType = ValType(3.0),                 # Value, or random in [min_value, max_value]
+        obstacles_mode: str = "none",                           # 'none', 'sinusoidal`, `double_sinusoidal`, `random`
+        obstacles_mode_param: Optional[dict[str, Any]] = None,  # specific parameters for `obstacles_mode`, ex: `obstacle_separation` for `sinusoidal` mode
+    ) -> dict[str, Any]:
+
+        #
+        ### Generate useful components. ###
+        #
+        components: dict[str, Optional[Any]] = {
+            'compiler': None,
+            'option': None,
+            'default': None,
+            'asset': None,
+            'body': []
+        }
+
+        #
+        components_body: list[ET.Element] = []
+
+
+        #
+        ### Generate a corridor based on parameters: ###
+        #
+
+        #
+        obstacles_mode_param_: dict[str, Any] = {} if obstacles_mode_param is None else obstacles_mode_param
+
+        #
+        corridor_length_: float = corridor_length.get_value()
+        corridor_width_: float  = corridor_width.get_value()
+
+        #
+        wall_width: float = 0.3
+        wall_height: float = 10.0
+
+        #
+        ## Add global scene ground. ##
+        #
+        components_body.append(
+            create_geom(
+                name="global_floor",
+                geom_type="plane",
+                size=Vec3(x = corridor_length_ * 10.0, y = corridor_length_ * 10.0, z = 1.0),
+                pos=Vec3(x = 0, y = 0, z = 0)
+            )
+        )
+
+        #
+        ## Add the two walls. ##
+        #
+        components_body.append(
+            create_geom(
+                name="wall_1",
+                geom_type="box",
+                size=Vec3(x = corridor_length_, y = wall_width, z = wall_height),
+                pos=Vec3(x = corridor_length_, y = -corridor_width_, z = wall_height)
+            )
+        )
+        components_body.append(
+            create_geom(
+                name="wall_2",
+                geom_type="box",
+                size=Vec3(x = corridor_length_, y = wall_width, z = wall_height),
+                pos=Vec3(x = corridor_length_, y = +corridor_width_, z = wall_height)
+            )
+        )
+
+        #
+        ## Add the obstacles ##
+        #
+
+        #
+        ## Sinusoidal mode. ##
+        #
+        if obstacles_mode == "sinusoidal":
+
+            #
+            obs_size_x: ValType = cast(ValType, obstacles_mode_param_.get("obstacle_size_x", 0.2))  # type: ignore
+            obs_size_y: ValType = cast(ValType, obstacles_mode_param_.get("obstacle_size_y", 0.2))  # type: ignore
+            obs_size_z: ValType = cast(ValType, obstacles_mode_param_.get("obstacle_size_z", 0.2))  # type: ignore
+            obs_sep: ValType = cast(ValType, obstacles_mode_param_.get("obstacle_sep", 0.2))  # type: ignore
+
+            #
+            obs_length: float = obs_size_x.get_max_value() + obs_sep.get_max_value()
+
+            #
+            nb_obstacles: int = max( floor(corridor_length_ / obs_length) + 1, 1)
+
+            #
+            current_obs_x: float = 2 + obs_sep.get_value()
+
+            #
+            obs_idx: int
+            #
+            for obs_idx in range(nb_obstacles):
+
+                #
+                current_obs_size_x: float = obs_size_x.get_value()
+                current_obs_size_y: float = obs_size_y.get_value()
+                current_obs_size_z: float = obs_size_z.get_value()
+
+                #
+                current_obs_y: float = sin( float(obs_idx) * 0.16 * pi ) * ( corridor_width_ - 2 * current_obs_size_y )
+                current_obs_z: float = 0
+
+                #
+                components_body.append(
+                    create_geom(
+                        name=f"obstacle_{obs_idx}",
+                        geom_type="box",
+                        size=Vec3(x = current_obs_size_x, y = current_obs_size_y, z = current_obs_size_z),
+                        pos=Vec3(x = current_obs_x, y = current_obs_y, z = current_obs_z)
+                    )
+                )
+
+                #
+                current_obs_x += current_obs_size_x + obs_sep.get_max_value()
+
+
+        #
+        ## Double sinusoidal mode. ##
+        #
+        elif obstacles_mode == "double_sinusoidal":
+
+            #
+            pass
+
+
+        #
+        ## Random mode. ##
+        #
+        elif obstacles_mode == "random":
+
+            #
+            pass
+
+
+        #
+        components['body'] = components_body
 
         #
         return components
@@ -402,6 +633,7 @@ class RootWorldScene:
 
         Args:
             robot_components: Extracted robot parts from XML
+            corridor_components: Extracted corridor parts from XML
             floor_type: Type of floor to create ("standard", "ice", "sand")
             robot_height: Starting height of robot above floor (meters)
         """
@@ -538,18 +770,6 @@ class RootWorldScene:
         worldbody: ET.Element = ET.Element('worldbody')
 
         #
-        ### Add a global floor to the world body. ###
-        #
-        floor_geom = ET.Element('geom')
-        #
-        floor_geom.set('name', 'dynamic_floor')
-        floor_geom.set('type', 'plane')
-        floor_geom.set('size', '100 100 0.1')
-        floor_geom.set('pos', '0 0 0.12')
-        #
-        worldbody.append(floor_geom)
-
-        #
         ### Add all the corridor worldbody to this worldbody. ###
         #
         if corridor_components['body'] is not None:
@@ -628,7 +848,7 @@ class RootWorldScene:
         #
         self.mujoco_model = self.build_combined_model(
             robot_components=self.robot.extract_robot_from_xml(),
-            corridor_components=self.corridor.extract_corridor_from_xml(),
+            corridor_components=self.corridor.generate_corridor(**GENERATE_CORRIDOR_PARAM),
             floor_type=floor_type,
             robot_height=robot_height
         )
@@ -795,7 +1015,7 @@ class Physics:
         acceleration_factor: float = 0.0,
         rotation_factor: float = 0.0,
         acceleration_force: float = 0.15,
-        rotation_force: float = 0.5,
+        rotation_force: float = 0.05,
         decceleration_factor: float = 1.0,
         max_front_wheel_speeds: float = 200.0,
         max_back_wheel_speeds: float = 100,
@@ -808,11 +1028,6 @@ class Physics:
             self.robot_wheels_speed[1] += acceleration_factor * acceleration_force
             self.robot_wheels_speed[2] += acceleration_factor * acceleration_force * 0.2
             self.robot_wheels_speed[3] += acceleration_factor * acceleration_force * 0.2
-            #
-            self.robot_wheels_speed[0] -= rotation_factor * rotation_force
-            self.robot_wheels_speed[1] += rotation_factor * rotation_force
-            self.robot_wheels_speed[2] -= rotation_factor * rotation_force * 0.2
-            self.robot_wheels_speed[3] += rotation_factor * rotation_force * 0.2
         #
         else:
             #
@@ -820,11 +1035,12 @@ class Physics:
             self.robot_wheels_speed[1] += acceleration_factor * acceleration_force * 0.2
             self.robot_wheels_speed[2] += acceleration_factor * acceleration_force
             self.robot_wheels_speed[3] += acceleration_factor * acceleration_force
-            #
-            self.robot_wheels_speed[0] -= rotation_factor * rotation_force * 0.2
-            self.robot_wheels_speed[1] += rotation_factor * rotation_force * 0.2
-            self.robot_wheels_speed[2] -= rotation_factor * rotation_force
-            self.robot_wheels_speed[3] += rotation_factor * rotation_force
+
+        #
+        self.robot_wheels_speed[0] -= rotation_factor * rotation_force
+        self.robot_wheels_speed[1] += rotation_factor * rotation_force
+        self.robot_wheels_speed[2] -= rotation_factor * rotation_force
+        self.robot_wheels_speed[3] += rotation_factor * rotation_force
 
         #
         if decceleration_factor < 1.0:
