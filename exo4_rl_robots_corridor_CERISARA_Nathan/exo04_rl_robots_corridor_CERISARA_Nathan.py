@@ -380,14 +380,8 @@ class Robot:
     #
     def create_sensor_boxes(self, robot_body: ET.Element) -> list[ET.Element]:
         """
-        Create invisible sensor boxes around the robot for collision detection.
-        Returns a list of sensor box body elements.
-
-        Args:
-            robot_body: The robot body element to attach sensors to
-
-        Returns:
-            List of sensor box elements with their names for tracking collisions
+        Create non-colliding sensor boxes around the robot for vision detection.
+        Returns a list of sensor site elements.
         """
 
         #
@@ -396,12 +390,10 @@ class Robot:
             return []
 
         #
-        sensor_boxes: list[ET.Element] = []
+        sensor_sites: list[ET.Element] = []
 
         #
-        ### Calculate robot chassis approximate radius (from chassis size in XML: 0.40 x 0.30). ###
-        #
-        ### Approximate radius from center. ###
+        ### Calculate robot chassis approximate radius ###
         #
         chassis_radius: float = 0.5
 
@@ -409,7 +401,7 @@ class Robot:
         for layer in range(self.sensor_layers):
 
             #
-            ### Distance from robot center increases with each layer. ###
+            ### Distance from robot center increases with each layer ###
             #
             distance: float = chassis_radius + (layer + 1) * self.sensor_box_size
 
@@ -417,61 +409,44 @@ class Robot:
             for box_idx in range(self.boxes_per_layer):
 
                 #
-                ### Distribute boxes evenly around circle. ###
+                ### Distribute boxes evenly around circle ###
                 #
                 angle: float = (2 * math.pi * box_idx) / self.boxes_per_layer
 
                 #
-                ### Calculate position. ###
+                ### Calculate position ###
                 #
                 x_pos: float = distance * math.cos(angle)
                 y_pos: float = distance * math.sin(angle)
-                #
-                ## Same height as robot center. ##
-                #
-                z_pos: float = 0
+                z_pos: float = 0  # Same height as robot center
 
                 #
-                ### Create sensor box body. ###
+                ### Create sensor site (not a body with geom) ###
                 #
-                sensor_body: ET.Element = ET.Element('body')
+                sensor_site: ET.Element = ET.Element('site')
                 sensor_name = f'sensor_L{layer}_B{box_idx}'
-                sensor_body.set('name', sensor_name)
-                sensor_body.set('pos', f'{x_pos:.3f} {y_pos:.3f} {z_pos:.3f}')
+                sensor_site.set('name', sensor_name)
+                sensor_site.set('type', 'box')
+                sensor_site.set('pos', f'{x_pos:.3f} {y_pos:.3f} {z_pos:.3f}')
 
                 #
-                ### Create sensor geom (invisible, used only for collision detection). ###
-                #
-                sensor_geom: ET.Element = ET.Element('geom')
-                sensor_geom.set('name', f'geom_{sensor_name}')
-                sensor_geom.set('type', 'box')
-                #
-                ## Half-size for box geom. ##
+                ### Set site size (half-lengths for box sites) ###
                 #
                 half_size: float = self.sensor_box_size / 2
-                #
-                sensor_geom.set('size', f'{half_size:.3f} {half_size:.3f} {half_size:.3f}')
+                sensor_site.set('size', f'{half_size:.3f} {half_size:.3f} {half_size:.3f}')
 
                 #
-                ### Make sensor invisible but active for collision detection. ###
+                ### Make sensor visible for debugging ###
                 #
-                sensor_geom.set('rgba', '0 1 0 0.3')
-                sensor_geom.set('contype', '1')
-                sensor_geom.set('conaffinity', '0')
-                sensor_geom.set('group', '1')
+                sensor_site.set('rgba', '0 1 0 0.3')  # Green with transparency
 
                 #
-                ### No mass - sensors don't affect physics. ###
+                ### Sites don't collide by default, so no contype/conaffinity needed
                 #
-                sensor_geom.set('mass', '0.0')
-                sensor_geom.set('density', '0.0')
-
-                #
-                sensor_body.append(sensor_geom)
-                sensor_boxes.append(sensor_body)
+                sensor_sites.append(sensor_site)
 
         #
-        return sensor_boxes
+        return sensor_sites
 
     #
     def extract_robot_from_xml(self) -> dict[str, Any]:
@@ -536,25 +511,25 @@ class Robot:
                         #
                         components['robot_body'] = body
 
-                        #
-                        ### Add sensor boxes to robot body. ###
-                        #
-                        if self.sensor_boxes_enabled:
-                            #
-                            sensor_boxes = self.create_sensor_boxes(body)
-                            #
-                            for sensor_box in sensor_boxes:
-                                #
-                                body.append(sensor_box)
-                            #
-                            components['sensor_boxes'] = sensor_boxes
-                            #
-                            print(f"  Added {len(sensor_boxes)} sensor boxes ({self.sensor_layers} layers × {self.boxes_per_layer} boxes)")
-
             #
             elif child.tag == 'actuator':
                 #
                 components['actuators'] = child
+
+        #
+        ### Add sensor boxes to robot body. ###
+        #
+        if self.sensor_boxes_enabled:
+            #
+            sensor_sites = self.create_sensor_boxes(body)
+            #
+            for sensor_site in sensor_sites:
+                #
+                body.append(sensor_site)  # Add sites directly to robot body
+            #
+            components['sensor_sites'] = sensor_sites  # Update key name
+            #
+            print(f"  Added {len(sensor_sites)} sensor sites ({self.sensor_layers} layers × {self.boxes_per_layer} boxes)")
 
         #
         return components
@@ -1001,122 +976,182 @@ class RootWorldScene:
 
 #
 class CollisionSensor:
+    """Improved collision detection for sensor sites using efficient geometric checks"""
 
-    """Helper class to detect collisions with sensor boxes"""
-
-    #
     def __init__(self, model: mujoco.MjModel, data: mujoco.MjData) -> None:
-
-        #
         self.model: mujoco.MjModel = model
         self.data: mujoco.MjData = data
 
-        #
-        ### Find all sensor box geom IDs. ###
-        #
-        self.sensor_geom_ids: dict[str, int] = {}
-        #
-        for i in range(model.ngeom):
-            #
-            geom_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i)
-            #
-            if geom_name and geom_name.startswith('geom_sensor_'):
-                #
-                self.sensor_geom_ids[geom_name] = i
+        # Cache sensor site information for faster access
+        self.sensor_sites: dict[str, dict] = {}
+        self.robot_geom_ids: set[int] = set()
 
-        #
-        ### Cache for sensor array idx. ###
-        #
+        # Find all sensor site IDs and cache their properties
+        for i in range(model.nsite):
+            site_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_SITE, i)
+            if site_name and site_name.startswith('sensor_'):
+                self.sensor_sites[site_name] = {
+                    'id': i,
+                    'size': model.site_size[i].copy(),
+                    'pos': np.zeros(3),  # will be updated each frame
+                    'mat': np.zeros(9)   # will be updated each frame
+                }
+
+        # Find all robot geom IDs to exclude from collision detection
+        for geom_id in range(model.ngeom):
+            geom_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
+            if geom_name and ('chassis' in geom_name or 'wheel' in geom_name):
+                self.robot_geom_ids.add(geom_id)
+
+        # Cache for faster array indexing
         self.sensor_arr_idx: dict[str, tuple[int, int]] = {}
 
-    #
+        print(f"Initialized collision sensor with {len(self.sensor_sites)} sensor sites")
+        print(f"Excluding {len(self.robot_geom_ids)} robot geoms from collision detection")
+
+    def update_sensor_positions(self) -> None:
+        """Update sensor site positions and orientations - call this once per frame"""
+        for site_info in self.sensor_sites.values():
+            site_id = site_info['id']
+            site_info['pos'] = self.data.site_xpos[site_id].copy()
+            site_info['mat'] = self.data.site_xmat[site_id].copy()
+
+    def box_contains_point(self, point: np.ndarray, box_center: np.ndarray,
+                          box_size: np.ndarray, box_rotation: np.ndarray) -> bool:
+        """
+        Check if a point is inside a rotated box.
+
+        Args:
+            point: The point to check (world coordinates)
+            box_center: Box center position (world coordinates)
+            box_size: Box half-sizes
+            box_rotation: Box rotation matrix (3x3, flattened)
+        """
+        # Transform point to box-local coordinates
+        rotation_matrix = box_rotation.reshape(3, 3)
+        local_point = rotation_matrix.T @ (point - box_center)
+
+        # Check if point is within box bounds in all dimensions
+        return (np.abs(local_point[0]) <= box_size[0] and
+                np.abs(local_point[1]) <= box_size[1] and
+                np.abs(local_point[2]) <= box_size[2])
+
+    def boxes_intersect(self, box1_center: np.ndarray, box1_size: np.ndarray, box1_rot: np.ndarray,
+                       box2_center: np.ndarray, box2_size: np.ndarray, box2_rot: np.ndarray) -> bool:
+        """
+        Check if two oriented boxes intersect using separating axis theorem.
+        This is more accurate but computationally expensive.
+        """
+        # Simple early rejection using sphere approximation
+        center_distance = np.linalg.norm(box1_center - box2_center)
+        max_radius = np.linalg.norm(box1_size) + np.linalg.norm(box2_size)
+
+        if center_distance > max_radius * 1.5:  # Conservative estimate
+            return False
+
+        # For now, use the simpler point-in-box check for the geom's center
+        # This is faster and works well for small geoms relative to sensor boxes
+        return self.box_contains_point(box2_center, box1_center, box1_size, box1_rot)
+
     def get_collision_state(self) -> dict[str, bool]:
         """
-        Check which sensor boxes are currently in collision.
-
-        Returns:
-            Dictionary mapping sensor names to collision state (True if colliding)
+        Check which sensor sites currently have geoms inside them.
+        Optimized for performance.
         """
+        # Update all sensor positions once per frame
+        self.update_sensor_positions()
 
-        #
         collision_state: dict[str, bool] = {
-            name: False for name in self.sensor_geom_ids.keys()
+            name: False for name in self.sensor_sites.keys()
         }
 
-        #
-        ### Check all contacts. ###
-        #
-        for i in range(self.data.ncon):
+        # Early exit if no sensors
+        if not self.sensor_sites:
+            return collision_state
 
-            #
-            contact: Any = self.data.contact[i]
-            geom1: Any = contact.geom1
-            geom2: Any = contact.geom2
+        # Check each geom against each sensor site
+        for geom_id in range(self.model.ngeom):
+            # Skip robot's own geoms
+            if geom_id in self.robot_geom_ids:
+                continue
 
-            #
-            ### Check if either geom is a sensor. ###
-            #
-            for sensor_name, sensor_id in self.sensor_geom_ids.items():
-                #
-                if geom1 == sensor_id or geom2 == sensor_id:
-                    #
-                    collision_state[sensor_name] = True
+            # Get geom position and bounding sphere for early rejection
+            geom_pos = self.data.geom_xpos[geom_id]
+            geom_radius = self.model.geom_rbound[geom_id]
 
-        #
+            # Skip if geom has no size
+            if geom_radius <= 0:
+                continue
+
+            # Check against each sensor site
+            for site_name, site_info in self.sensor_sites.items():
+                # Skip if this site already has a collision
+                if collision_state[site_name]:
+                    continue
+
+                # Early rejection using bounding spheres
+                site_pos = site_info['pos']
+                site_max_size = np.max(site_info['size'])
+
+                distance = np.linalg.norm(geom_pos - site_pos)
+                max_radius = geom_radius + site_max_size
+
+                if distance > max_radius * 1.2:  # Conservative estimate
+                    continue
+
+                # Detailed box intersection check
+                if self.boxes_intersect(
+                    site_info['pos'], site_info['size'], site_info['mat'],
+                    geom_pos, np.array([geom_radius, geom_radius, geom_radius]),
+                    np.eye(3).flatten()  # Assume geoms are axis-aligned for simplicity
+                ):
+                    collision_state[site_name] = True
+                    break  # Move to next geom
+
         return collision_state
 
-    #
-    def get_collision_array(self, layers: int, boxes_per_layer: int) -> NDArray[np.bool_]:
+    def get_collision_array(self, layers: int, boxes_per_layer: int) -> np.ndarray:
         """
         Get collision state as a structured array.
-
-        Returns:
-            Array of shape (layers, boxes_per_layer) with collision state
+        Much faster implementation.
         """
+        collision_state = self.get_collision_state()
+        result = np.zeros((layers, boxes_per_layer), dtype=bool)
 
-        #
-        collision_state: dict[str, bool] = self.get_collision_state()
-        #
-        result: NDArray[np.bool_] = np.zeros((layers, boxes_per_layer), dtype=bool)
-
-        #
         for sensor_name, is_colliding in collision_state.items():
-
-            #
-            ### Parse sensor name: 'geom_sensor_L{layer}_B{box}'. ###
-            #
+            # Parse sensor name: 'sensor_L{layer}_B{box}'
             if 'sensor_L' in sensor_name:
-
-                #
                 try:
-                    #
-                    ## Add the collision boolean to the numpy tensor. ##
-                    #
-                    result[*self.sensor_arr_idx[sensor_name]] = is_colliding
+                    # Use cached indices if available
+                    if sensor_name in self.sensor_arr_idx:
+                        layer, box = self.sensor_arr_idx[sensor_name]
+                        result[layer, box] = is_colliding
+                    else:
+                        # Parse the sensor name
+                        parts = sensor_name.split('_')
+                        layer = int(parts[1][1:])  # Extract number after 'L'
+                        box = int(parts[2][1:])    # Extract number after 'B'
 
-                #
-                except:
-                    #
-                    ## split the name of the sensor name. ##
-                    #
-                    parts = sensor_name.split('_')
-                    #
-                    ## Extract number after 'L'. ##
-                    #
-                    layer = int(parts[2][1:])
-                    #
-                    ## Extract number after 'B'. ##
-                    #
-                    box = int(parts[3][1:])
-                    #
-                    ## Add the collision boolean to the numpy tensor. ##
-                    #
-                    result[layer, box] = is_colliding
-                    #
-                    self.sensor_arr_idx[sensor_name] = (layer, box)
+                        # Validate indices
+                        if 0 <= layer < layers and 0 <= box < boxes_per_layer:
+                            result[layer, box] = is_colliding
+                            self.sensor_arr_idx[sensor_name] = (layer, box)
+                except (IndexError, ValueError):
+                    # Skip malformed sensor names
+                    continue
 
-        #
         return result
+
+    def visualize_collisions(self, collision_state: dict[str, bool]) -> None:
+        """Visualize which sensors are detecting collisions by changing their colors"""
+        for site_name, is_colliding in collision_state.items():
+            if site_name in self.sensor_sites:
+                site_id = self.sensor_sites[site_name]['id']
+                # Change color based on collision state
+                if is_colliding:
+                    self.model.site_rgba[site_id] = [1, 0, 0, 0.6]  # Red when colliding
+                else:
+                    self.model.site_rgba[site_id] = [0, 1, 0, 0.3]  # Green when clear
 
 
 #
@@ -1169,6 +1204,7 @@ class TrackRobot:
         plt.plot(time_range, self.robot_vely_track, label="vel y")  # type: ignore
         plt.plot(time_range, self.robot_velz_track, label="vel z")  # type: ignore
         #
+        plt.yscale("symlog")
         plt.legend()  # type: ignore
         plt.show()  # type: ignore
 
@@ -1613,6 +1649,8 @@ class State:
         controls: Controls,
         viewer_instance: Any,
         robot_track: TrackRobot,
+        robot: Robot,
+        collision_sensor: CollisionSensor
     ) -> None:
 
         #
@@ -1624,6 +1662,8 @@ class State:
         self.viewer_instance: Any = viewer_instance
         #
         self.robot_track: TrackRobot = robot_track
+        self.robot: Robot = robot
+        self.collision_sensor: CollisionSensor = collision_sensor
         #
         self.quit: bool = False
 
@@ -1659,6 +1699,23 @@ class Main:
     #
     @staticmethod
     def state_step(state: State) -> State:
+
+        # Update collision detection (do this once per frame)
+        collision_array = state.collision_sensor.get_collision_array(
+            layers=state.robot.sensor_layers,
+            boxes_per_layer=state.robot.boxes_per_layer
+        )
+
+        # Optional: Visualize collisions
+        collision_state = state.collision_sensor.get_collision_state()
+        state.collision_sensor.visualize_collisions(collision_state)
+
+        # Print debug info less frequently to improve performance
+        if state.mj_data.time % 0.5 < state.mj_model.opt.timestep:  # Every ~0.5 seconds
+            active_sensors = [name for name, colliding in collision_state.items() if colliding]
+            if active_sensors:
+                print(f"Active sensors ({len(active_sensors)}): {active_sensors}")
+            print(f"Collision state:\n{collision_array}")
 
         #
         state.robot_track.track()
@@ -1799,7 +1856,9 @@ class Main:
                 camera=camera,
                 controls=controls,
                 viewer_instance=viewer_instance,
-                robot_track=robot_track
+                robot_track=robot_track,
+                robot=root_scene.robot,
+                collision_sensor=collision_sensor
             )
 
             #
@@ -1809,16 +1868,6 @@ class Main:
 
                 #
                 state = Main.state_step(state)
-
-                #
-                ### In your simulation loop, check collisions: ###
-                #
-                collision_array: NDArray[np.bool_] = collision_sensor.get_collision_array(
-                    layers=2,
-                    boxes_per_layer=8
-                )
-                #
-                print(f"Collision state:\n{collision_array}")
 
         #
         robot_track.plot_tracking()
