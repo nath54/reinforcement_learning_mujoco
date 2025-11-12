@@ -7,7 +7,7 @@ import os
 import json
 import argparse
 import random
-import math
+# import math
 #
 from math import floor, sin, pi
 #
@@ -374,14 +374,32 @@ class Robot:
         self.root: ET.Element = self.tree.getroot()
 
     #
-    def create_sensor_rays(self, robot_body: ET.Element) -> list[ET.Element]:
+    def create_sensor_sites(self, robot_body: ET.Element) -> list[ET.Element]:
+
         """
-        Create non-colliding sensor boxes around the robot for vision detection.
-        Returns a list of sensor site elements.
+        Create sensor sites (not colliding geoms) for raycasting origin points.
+        Sites are invisible markers used as ray starting points.
+        Returns:
+            list[ET.Element]: List of sensor site elements
         """
 
         #
-        return []
+        sensor_sites: list[ET.Element] = []
+
+        #
+        ### Create a central sensor site at robot center (elevated). ###
+        #
+        center_site = ET.Element('site')
+        #
+        center_site.set('name', 'sensor_center')
+        center_site.set('type', 'sphere')
+        center_site.set('size', '0.05')
+        center_site.set('rgba', '1 0 0 0.2')  # Semi-transparent red
+        center_site.set('pos', '0 0 0.3')    # Elevated to avoid ground intersection
+        #
+        sensor_sites.append(center_site)
+        #
+        return sensor_sites
 
     #
     def extract_robot_from_xml(self) -> dict[str, Any]:
@@ -389,16 +407,13 @@ class Robot:
         Extract robot components from existing XML file.
         This teaches students how to parse and reuse XML components.
         """
-
         #
         print(f"Extracting robot components from {self.xml_file_path}...")
-
         #
         ### Parse the existing XML file. ###
         #
         tree: ET.ElementTree[ET.Element] = ET.parse(self.xml_file_path)
         root: ET.Element = tree.getroot()
-
         #
         ### Extract useful components. ###
         #
@@ -409,9 +424,8 @@ class Robot:
             'asset': None,
             'robot_body': None,
             'actuators': None,
-            'sensor_boxes': []
+            'sensor_sites': []  # Changed from sensor_boxes to sensor_sites
         }
-
         #
         ### Find and extract each component. ###
         #
@@ -434,32 +448,30 @@ class Robot:
                 components['asset'] = child
             #
             elif child.tag == 'worldbody':
-
                 #
                 ### Extract the robot body from worldbody. ###
                 #
                 for body in child:
-
                     #
                     if body.get('name') == 'robot':
-
                         #
                         components['robot_body'] = body
-
+                        #
+                        ### Add sensor sites to robot body. ###
+                        #
+                        sensor_sites: list[ET.Element] = self.create_sensor_sites(body)
+                        #
+                        site: ET.Element
+                        #
+                        for site in sensor_sites:
+                            #
+                            body.append(site)
+                        #
+                        components['sensor_sites'] = sensor_sites
             #
             elif child.tag == 'actuator':
                 #
                 components['actuators'] = child
-
-        #
-        ### Add sensor rays to robot body. ###
-        #
-        if components['robot_body'] is not None:
-            #
-            sensor_rays: list[ET.Element] = self.create_sensor_rays(components['robot_body'])
-            #
-            # TODO: add sensor to scene
-
         #
         return components
 
@@ -644,20 +656,38 @@ class RootWorldScene:
         #
         ### Robot sensor parameters. ###
         #
-        sensor_boxes_enabled: bool = True,
-        sensor_box_size: float = 0.5,
-        sensor_layers: int = 2,
-        boxes_per_layer: int = 8
+        sensor_enabled: bool = True,
+        sensor_num_rays: int = 16,
+        sensor_ray_length: float = 15.0,
+        sensor_height_offset: float = 0.3,
+        sensor_downward_angle: float = 0.1,
+        sensor_ignore_geoms: Optional[list[str]] = None
     ) -> None:
 
         #
         self.corridor: Corridor = Corridor()
-        #
-        self.robot: Robot = Robot()
 
+        #
+        self.robot: Robot = Robot(
+            sensor_num_rays=sensor_num_rays,
+            sensor_ray_length=sensor_ray_length
+        )
+
+        #
+        self.sensor_enabled: bool = sensor_enabled
+        self.sensor_num_rays: int = sensor_num_rays
+        self.sensor_ray_length: float = sensor_ray_length
+        self.sensor_height_offset: float = sensor_height_offset
+        self.sensor_downward_angle: float = sensor_downward_angle  # Store downward angle
+        self.sensor_ignore_geoms: Optional[list[str]] = sensor_ignore_geoms or [
+            "chassis", "geom_wheel_front_left", "geom_wheel_front_right",
+            "geom_wheel_back_left", "geom_wheel_back_right", "global_floor"
+        ]
         #
         self.mujoco_model: mujoco.MjModel
         self.mujoco_data: mujoco.MjData
+        #
+        self.sensors: Optional[Sensors] = None
 
 
     #
@@ -897,22 +927,291 @@ class RootWorldScene:
         #
         self.mujoco_data = mujoco.MjData(self.mujoco_model)
 
+        #
+        ### Initialize sensors if enabled. ###
+        #
+        if self.sensor_enabled:
+            #
+            self.sensors = Sensors(
+                mujoco_model=self.mujoco_model,
+                mujoco_data=self.mujoco_data,
+                robot_body_name="robot",
+                sensor_num_rays=self.sensor_num_rays,
+                sensor_ray_length=self.sensor_ray_length,
+                sensor_height_offset=self.sensor_height_offset,
+                sensor_downward_angle=self.sensor_downward_angle,
+                sensor_ignore_geoms=self.sensor_ignore_geoms
+            )
+            #
+            print(f"Initialized {self.sensor_num_rays} raycasting sensors with range {self.sensor_ray_length}m")
+            print(f"  Sensor height offset: {self.sensor_height_offset}m above robot")
+            print(f"  Sensor downward angle: {self.sensor_downward_angle:.3f} radians ({self.sensor_downward_angle * 180 / np.pi:.1f} degrees)")
 
+
+#
+### Update the Sensors class with full raycasting implementation. ###
 #
 class Sensors:
 
     #
     def __init__(
         self,
-        # TODO: parameters
+        mujoco_model: mujoco.MjModel,
+        mujoco_data: mujoco.MjData,
+        robot_body_name: str = "robot",
+        sensor_num_rays: int = 8,
+        sensor_ray_length: float = 10.0,
+        sensor_height_offset: float = 0.3,
+        sensor_downward_angle: float = 0.1,
+        sensor_ignore_geoms: Optional[list[str]] = None
     ) -> None:
 
-        # TODO
-        pass
+        #
+        self.model: mujoco.MjModel = mujoco_model
+        self.data: mujoco.MjData = mujoco_data
 
-        self.nb_sensors: int = 8  # TODO: link that directly with the Robot object
+        #
+        self.robot_body_id: int = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_BODY, robot_body_name
+        )
+        #
+        if self.robot_body_id == -1:
+            #
+            raise ValueError(f"Robot body '{robot_body_name}' not found in model")
 
-    # TODO: utils method if needed
+        #
+        self.num_rays: int = sensor_num_rays
+        self.ray_length: float = sensor_ray_length
+        self.height_offset: float = sensor_height_offset
+        self.downward_angle: float = sensor_downward_angle
+
+        #
+        ### Pre-compute ray directions in horizontal plane with downward angle. ###
+        #
+        self.ray_directions: NDArray[np.float64] = np.zeros((self.num_rays, 3), dtype=np.float64)
+        #
+        angle_step: float = 2.0 * np.pi / self.num_rays
+
+        #
+        ray_idx: int
+        #
+        for ray_idx in range(self.num_rays):
+
+            #
+            angle: float = ray_idx * angle_step
+
+            #
+            ### Calculate direction with downward angle. ###
+            #
+            horizontal_length: float = np.cos(self.downward_angle)
+            vertical_component: float = -np.sin(self.downward_angle)  # Negative for downward
+
+            #
+            self.ray_directions[ray_idx, 0] = np.cos(angle) * horizontal_length  # x component
+            self.ray_directions[ray_idx, 1] = np.sin(angle) * horizontal_length  # y component
+            self.ray_directions[ray_idx, 2] = vertical_component                   # z component (downward)
+
+        #
+        ### Cache geom IDs to ignore (robot body and wheels to prevent self-intersection). ###
+        #
+        self.ignore_geom_ids: list[int] = []
+        #
+        if sensor_ignore_geoms is not None:
+
+            #
+            geom_name: str
+            #
+            for geom_name in sensor_ignore_geoms:
+
+                #
+                geom_id: int = mujoco.mj_name2id(
+                    self.model, mujoco.mjtObj.mjOBJ_GEOM, geom_name
+                )
+                #
+                if geom_id != -1:
+                    #
+                    self.ignore_geom_ids.append(geom_id)
+
+        #
+        ### Pre-allocate arrays for ray results (optimization). ###
+        #
+        self.ray_distances: NDArray[np.float32] = np.full((self.num_rays,), -1.0, dtype=np.float32)
+        #
+        self.ray_geoms: NDArray[np.int32] = np.zeros((self.num_rays,), dtype=np.int32)
+
+        #
+        ### Check if mj_multiRay is available (MuJoCo 2.3.6+). ###
+        #
+        self.use_multi_ray: bool = hasattr(mujoco, 'mj_multiRay')
+        #
+        if not self.use_multi_ray:
+            #
+            print("Warning: mj_multiRay not available. Using slower individual ray casting.")
+            #
+            ### Pre-allocate single ray buffers. ###
+            #
+            self.single_ray_buffer: NDArray[np.float64] = np.zeros(6, dtype=np.float64)
+
+    #
+    def _get_sensor_origin(self) -> NDArray[np.float64]:
+
+        """
+        Get the sensor origin position (robot center + height offset).
+        Returns:
+            NDArray[np.float64]: 3D position array [x, y, z]
+        """
+
+        #
+        robot_pos: NDArray[np.float64] = self.data.xpos[self.robot_body_id].copy()
+
+        #
+        ### Add height offset to avoid ground intersection. ###
+        #
+        robot_pos[2] += self.height_offset
+
+        #
+        return robot_pos
+
+    #
+    def _cast_rays_multi(self, origin: NDArray[np.float64]) -> None:
+
+        """
+        Cast multiple rays simultaneously using mj_multiRay (if available).
+        This is significantly faster than individual ray casting.
+        """
+
+        #
+        if not hasattr(mujoco, 'mj_multiRay'):
+            #
+            return
+        #
+        ### Normalize ray directions. ###
+        #
+        normalized_dirs: NDArray[np.float64] = self.ray_directions.copy()
+
+        #
+        ray_idx: int
+        #
+        for ray_idx in range(self.num_rays):
+            #
+            dir_norm: float = float( np.linalg.norm(normalized_dirs[ray_idx]) )
+            #
+            if dir_norm > 1e-6:
+                #
+                normalized_dirs[ray_idx] /= dir_norm
+
+        #
+        ### Prepare ignore array (1 = ignore, 0 = consider). ###
+        #
+        geom_ignore: NDArray[np.uint8] = np.zeros(self.model.ngeom, dtype=np.uint8)
+        #
+        geom_id: int
+        #
+        for geom_id in self.ignore_geom_ids:
+            #
+            if 0 <= geom_id < self.model.ngeom:
+                #
+                geom_ignore[geom_id] = 1
+
+        #
+        ### Call optimized multi-ray casting. ###
+        #
+        mujoco.mj_multiRay(
+            m=self.model,
+            d=self.data,
+            pnt=origin,                   # CORRECTED: pnt instead of p
+            vec=normalized_dirs.flatten(), # CORRECTED: vec instead of r
+            geomgroup=None,               # Consider all geom groups
+            flg_static=1,                 # Include static geoms
+            bodyexclude=self.robot_body_id,  # Exclude robot body
+            # geomignore=geom_ignore,
+            dist=self.ray_distances.astype(np.float64),
+            geomid=self.ray_geoms,
+            nray=self.num_rays,
+            cutoff=self.ray_length        # CORRECTED: added missing cutoff parameter
+        )
+
+        #
+        ### Apply ray length limit and normalize output. ###
+        #
+        self.ray_distances = np.minimum(self.ray_distances, self.ray_length)
+        self.ray_distances[self.ray_distances < 0] = -1.0
+
+    #
+    def _cast_rays_single(self, origin: NDArray[np.float64]) -> None:
+        """
+        Cast rays individually using mj_ray (fallback for older MuJoCo versions).
+        Less efficient but works on all versions.
+        """
+
+        #
+        ### Get robot body position for exclusion. ###
+        #
+        # robot_pos: NDArray[np.float64] = self.data.xpos[self.robot_body_id]
+
+        #
+        ### Pre-allocate geomid array for single ray casting. ###
+        #
+        geomid: NDArray[np.int32] = np.zeros(1, dtype=np.int32)
+
+        #
+        ### Cache ray results. ###
+        #
+        distances: list[float] = []
+
+        #
+        ray_idx: int
+        #
+        for ray_idx in range(self.num_rays):
+
+            #
+            direction: NDArray[np.float64] = self.ray_directions[ray_idx].copy()
+
+            #
+            ### Skip zero-length directions. ###
+            #
+            if np.linalg.norm(direction) < 1e-6:
+                #
+                distances.append(-1.0)
+                #
+                continue
+
+            #
+            ### Ray cast parameters. ###
+            #
+            distance: float = mujoco.mj_ray(
+                m=self.model,
+                d=self.data,
+                pnt=origin,               # CORRECTED: pnt instead of p
+                vec=direction,            # CORRECTED: vec instead of d
+                geomgroup=None,           # All geom groups
+                flg_static=1,             # Include static geoms
+                bodyexclude=self.robot_body_id,  # Exclude robot body
+                geomid=geomid             # CORRECTED: added missing geomid parameter
+            )
+
+            #
+            geom_id: int = int(geomid[0]) if geomid[0] >= 0 else -1
+            #
+            if geom_id >= 0:
+
+                #
+                ### Check if this geom should be ignored (self-intersection prevention). ###
+                #
+                if geom_id in self.ignore_geom_ids:
+                    #
+                    distances.append(self.ray_length)
+                #
+                else:
+                    #
+                    distances.append(min(distance * self.ray_length, self.ray_length))
+
+            #
+            else:
+                #
+                distances.append(-1.0)
+        #
+        self.ray_distances = np.array(distances, dtype=np.float32)
 
     #
     def get_sensor_data(self) -> NDArray[np.float32]:
@@ -922,15 +1221,37 @@ class Sensors:
         returns an array of the number of sensors with:
             -1: Nothing hits the sensor
             0.0 <= v <= ray_length: distance of the nearest object that intersect the ray
-
         Returns:
             NDArray[np.float32]: array of sensor data
         """
 
-        # TODO
-        pass
+        #
+        ### Get current sensor origin position. ###
+        #
+        origin: NDArray[np.float64] = self._get_sensor_origin()
 
-        return np.full((self.nb_sensors,), fill_value=-1, dtype=np.float32)
+        #
+        ### Cast rays using the most efficient method available. ###
+        #
+        if self.use_multi_ray:
+            #
+            self._cast_rays_multi(origin)
+        #
+        else:
+            #
+            self._cast_rays_single(origin)
+
+        #
+        ### Return normalized sensor data (distances normalized by ray_length). ###
+        #
+        normalized_data: NDArray[np.float32] = self.ray_distances.copy()
+        #
+        valid_mask: NDArray[np.bool_] = normalized_data >= 0
+        #
+        normalized_data[valid_mask] /= self.ray_length
+
+        #
+        return normalized_data
 
 
 #
@@ -1429,7 +1750,7 @@ class State:
         viewer_instance: Any,
         robot_track: TrackRobot,
         robot: Robot,
-        sensors: Sensors
+        sensors: Optional[Sensors] = None
     ) -> None:
 
         #
@@ -1442,7 +1763,7 @@ class State:
         #
         self.robot_track: TrackRobot = robot_track
         self.robot: Robot = robot
-        self.sensors: Sensors = sensors
+        self.sensors: Optional[Sensors] = sensors
         #
         self.quit: bool = False
 
@@ -1480,15 +1801,54 @@ class Main:
     def state_step(state: State) -> State:
 
         #
-        sensor_data: NDArray[np.float32] = state.sensors.get_sensor_data()
+        sensor_data: NDArray[np.float32] = np.zeros((0,), dtype=np.float32)
+        #
+        if state.sensors is not None:
+            #
+            sensor_data = state.sensors.get_sensor_data()
 
         #
         ### Print debug info every ~0.5 seconds. ###
         #
-        if state.mj_data.time % 0.5 < state.mj_model.opt.timestep:
-
+        if state.mj_data.time % 0.5 < state.mj_model.opt.timestep and len(sensor_data) > 0:
             #
-            print(f"Sensor data:\n{sensor_data}")
+            print(f"Sensor data (normalized distances):")
+            #
+            ### Check if there are any valid detections (non-negative values). ###
+            #
+            valid_detections: NDArray[np.bool_] = sensor_data >= 0
+            has_valid_detections: bool = bool( np.any(valid_detections) )
+            #
+            if has_valid_detections:
+                #
+                print(
+                    f"  Min: {np.min(sensor_data[valid_detections]):.3f}, "
+                    f"Max: {np.max(sensor_data[valid_detections]):.3f}, "
+                    f"Mean: {np.mean(sensor_data[valid_detections]):.3f}"
+                )
+            #
+            else:
+                #
+                print("  No valid detections (all sensors show -1)")
+            #
+            ### Visual debugging: show sensor values as bar chart in console. ###
+            #
+            bar_chart: str = "  Sensors: "
+            #
+            val: float
+            #
+            for val in sensor_data:
+                #
+                if val < 0:
+                    #
+                    bar_chart += "▁"  # No detection
+                #
+                else:
+                    #
+                    bar_height: int = min(int(val * 8), 8)
+                    bar_chart += "▁▂▃▄▅▆▇█"[bar_height]
+            #
+            print(bar_chart)
 
         #
         state.robot_track.track()
@@ -1547,10 +1907,15 @@ class Main:
 
         #
         root_scene: RootWorldScene = RootWorldScene(
-            sensor_boxes_enabled=True,
-            sensor_box_size=0.3,  # 50cm boxes
-            sensor_layers=2,       # 2 concentric circles
-            boxes_per_layer=8      # 8 boxes per circle
+            sensor_enabled=True,
+            sensor_num_rays=16,           # 16 rays for good 360° coverage
+            sensor_ray_length=15.0,       # 15m range for corridor navigation
+            sensor_height_offset=0.5,     # 0.5m above robot body (good for hole detection)
+            sensor_downward_angle=0.2,    # 0.2 radians (~11.5 degrees) downward angle
+            sensor_ignore_geoms=[         # Prevent self-intersections
+                "chassis", "geom_wheel_front_left", "geom_wheel_front_right",
+                "geom_wheel_back_left", "geom_wheel_back_right", "global_floor"
+            ]
         )
 
         #
@@ -1560,9 +1925,9 @@ class Main:
         )
 
         #
-        sensors: Sensors = Sensors(
-            # TODO: parameters
-        )
+        ### Initialize sensors if scene has them. ###
+        #
+        sensors: Optional[Sensors] = root_scene.sensors if hasattr(root_scene, 'sensors') else None
 
         #
         physics: Physics = Physics(
