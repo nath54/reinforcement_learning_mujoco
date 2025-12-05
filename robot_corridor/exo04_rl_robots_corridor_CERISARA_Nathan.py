@@ -143,292 +143,118 @@ class Rect2d:
         )
 
 #
-### Quadtree Implementation for Spatial Partitioning. ###
-#
-class Quadtree:
-    """A Quadtree for efficient 2D spatial partitioning of Rect2d objects."""
-
-    #
-    ### Maximum number of objects a node can hold before subdividing. ###
-    #
-    MAX_OBJECTS: int = 10
-    #
-    ### Minimum size for a node to be allowed to subdivide. ###
-    #
-    MAX_LEVELS: int = 5
-
-    #
-    def __init__(self, level: int, bounds: Rect2d, objects: Optional[list[Rect2d]]=None) -> None:
-
-        #
-        self.level: int = level
-        self.bounds: Rect2d = bounds
-        self.objects: list[Rect2d] = objects if objects is not None else []
-        self.nodes: list[Optional['Quadtree']] = [None, None, None, None]
-
-    #
-    def clear(self) -> None:
-        """Clears the quadtree."""
-
-        #
-        self.objects = []
-        #
-        for i in range(len(self.nodes)):
-            #
-            if self.nodes[i] is not None:
-                #
-                self.nodes[i].clear()
-            #
-            self.nodes[i] = None
-
-    #
-    def split(self) -> None:
-        """Splits the node into four subnodes."""
-
-        #
-        sub_width: float = (self.bounds.corner_bottom_right.x - self.bounds.corner_top_left.x) / 2
-        sub_height: float = (self.bounds.corner_bottom_right.y - self.bounds.corner_top_left.y) / 2
-        x: float = self.bounds.corner_top_left.x
-        y: float = self.bounds.corner_top_left.y
-
-        #
-        ### Top-Right (0) ###
-        #
-        self.nodes[0] = Quadtree(
-            self.level + 1,
-            Rect2d(Point2d(x + sub_width, y), Point2d(x + 2 * sub_width, y + sub_height))
-        )
-        #
-        ### Top-Left (1) ###
-        #
-        self.nodes[1] = Quadtree(
-            self.level + 1,
-            Rect2d(Point2d(x, y), Point2d(x + sub_width, y + sub_height))
-        )
-        #
-        ### Bottom-Left (2) ###
-        #
-        self.nodes[2] = Quadtree(
-            self.level + 1,
-            Rect2d(Point2d(x, y + sub_height), Point2d(x + sub_width, y + 2 * sub_height))
-        )
-        #
-        ### Bottom-Right (3) ###
-        #
-        self.nodes[3] = Quadtree(
-            self.level + 1,
-            Rect2d(Point2d(x + sub_width, y + sub_height), Point2d(x + 2 * sub_width, y + 2 * sub_height))
-        )
-
-    #
-    def get_index(self, rect: Rect2d) -> int:
-        """Determines which node the Rect2d belongs to, or -1 if it straddles multiple."""
-
-        #
-        index: int = -1
-        #
-        vertical_midpoint: float = self.bounds.corner_top_left.x + (self.bounds.corner_top_right.x - self.bounds.corner_top_left.x) / 2
-        horizontal_midpoint: float = self.bounds.corner_top_left.y + (self.bounds.corner_bottom_left.y - self.bounds.corner_top_left.y) / 2
-
-        #
-        ### Object can completely fit within the top quadrants. ###
-        #
-        top_quadrant: bool = (rect.corner_top_left.y < horizontal_midpoint and rect.corner_bottom_right.y < horizontal_midpoint)
-        #
-        ### Object can completely fit within the bottom quadrants. ###
-        #
-        bottom_quadrant: bool = (rect.corner_top_left.y > horizontal_midpoint and rect.corner_bottom_right.y > horizontal_midpoint)
-
-        #
-        ### Object can completely fit within the left quadrants. ###
-        #
-        if rect.corner_top_left.x < vertical_midpoint and rect.corner_bottom_right.x < vertical_midpoint:
-            #
-            if top_quadrant:
-                #
-                index = 1  # Top-Left
-            #
-            elif bottom_quadrant:
-                #
-                index = 2  # Bottom-Left
-        #
-        ### Object can completely fit within the right quadrants. ###
-        #
-        elif rect.corner_top_left.x > vertical_midpoint and rect.corner_bottom_right.x > vertical_midpoint:
-            #
-            if top_quadrant:
-                #
-                index = 0  # Top-Right
-            #
-            elif bottom_quadrant:
-                #
-                index = 3  # Bottom-Right
-
-        #
-        return index
-
-    #
-    def insert(self, rect: Rect2d) -> None:
-        """Adds a Rect2d to the quadtree."""
-
-        #
-        if self.nodes[0] is not None:
-            #
-            index: int = self.get_index(rect)
-
-            #
-            if index != -1:
-                #
-                self.nodes[index].insert(rect)  # type: ignore
-                #
-                return
-
-        #
-        self.objects.append(rect)
-
-        #
-        if len(self.objects) > self.MAX_OBJECTS and self.level < self.MAX_LEVELS:
-            #
-            if self.nodes[0] is None:
-                #
-                self.split()
-
-            #
-            i: int = 0
-            #
-            while i < len(self.objects):
-                #
-                index: int = self.get_index(self.objects[i])
-                #
-                if index != -1:
-                    #
-                    ### Insert into child node and remove from parent. ###
-                    #
-                    self.nodes[index].insert(self.objects.pop(i))  # type: ignore
-                #
-                else:
-                    #
-                    i += 1
-
-    #
-    def retrieve(self, rect: Rect2d) -> list[Rect2d]:
-        """Returns all Rect2d objects that potentially collide with the given Rect2d."""
-
-        #
-        index: int = self.get_index(rect)
-        #
-        return_objects: list[Rect2d] = self.objects
-
-        #
-        if self.nodes[0] is not None:
-            #
-            if index != -1:
-                #
-                ### Only check one node if Rect2d fits completely. ###
-                #
-                return_objects.extend(self.nodes[index].retrieve(rect))  # type: ignore
-            #
-            else:
-                #
-                ### Check all four nodes if Rect2d straddles boundaries. ###
-                #
-                for node in self.nodes:
-                    #
-                    return_objects.extend(node.retrieve(rect))  # type: ignore
-
-        #
-        return return_objects
-
-
-#
 ### Efficient Collision System Between Rectangles. ###
 #
 class EfficientCollisionSystemBetweenEnvAndAgent:
-    """
-    Manages the spatial index (Quadtree) for the static environment.
-    This enables fast collision and proximity queries for the agent's sensor system.
-    """
 
     #
-    def __init__(self, environment_obstacles: list[Rect2d], env_bounds: Rect2d):
+    def __init__(
+        self,
+        environment_obstacles: list[Rect2d],
+        env_bounds: Rect2d,
+        env_precision: float = 0.1
+    ) -> None:
 
         #
-        print("Initializing Quadtree for collision system...")
+        self.env_precision: float = env_precision
+        self.env_bounds: Rect2d = env_bounds
+
         #
-        self.env_quadtree: Quadtree = Quadtree(
-            level=0,
-            bounds=env_bounds
+        self.env_matrix: NDArray[np.float64] = np.zeros(
+            (
+                int((env_bounds.corner_bottom_right.x - env_bounds.corner_top_left.x) / env_precision),
+                int((env_bounds.corner_bottom_right.y - env_bounds.corner_top_left.y) / env_precision)
+            ),
+            dtype=np.float64
         )
 
         #
         for rect in environment_obstacles:
             #
-            self.env_quadtree.insert(rect)
-        #
-        print(f"Quadtree initialized with {len(environment_obstacles)} obstacles.")
-
-
-    #
-    def get_potential_collisions(self, agent_rect: Rect2d) -> list[Rect2d]:
-        """
-        Retrieves a list of environment obstacles that are close to (or colliding with)
-        the agent's sensing rectangle. This is the fast part of the sensor system.
-        """
-
-        #
-        return self.env_quadtree.retrieve(agent_rect)
-
+            start_x: int = int((rect.corner_top_left.x - env_bounds.corner_top_left.x) / env_precision)
+            end_x: int = int((rect.corner_bottom_right.x - env_bounds.corner_top_left.x) / env_precision)
+            start_y: int = int((rect.corner_top_left.y - env_bounds.corner_top_left.y) / env_precision)
+            end_y: int = int((rect.corner_bottom_right.y - env_bounds.corner_top_left.y) / env_precision)
+            
+            # Clip to bounds
+            start_x = max(0, start_x)
+            end_x = min(self.env_matrix.shape[0], end_x)
+            start_y = max(0, start_y)
+            end_y = min(self.env_matrix.shape[1], end_y)
+            
+            self.env_matrix[start_x:end_x, start_y:end_y] = rect.height
 
     #
-    def is_collision(self, agent_rect: Rect2d) -> bool:
-        """
-        Checks for actual collision between the agent and any environment obstacle.
-        The check is optimized by first querying the Quadtree for nearby objects.
-        """
+    def get_robot_vision_and_state(
+        self,
+        robot_pos: Vec3,
+        robot_rot: Vec3,
+        robot_speed: Vec3,
+        robot_acceleration: Vec3,
+        robot_view_range: float,
+    ) -> NDArray[np.float64]:
 
         #
-        potential_collisions: list[Rect2d] = self.get_potential_collisions(agent_rect)
+        ### Return a matrix or a vector of the environment seen by the robot and agent state. ###
+        ### This data will be used as the observation space for the agent. ###
+        #
 
         #
-        for obstacle_rect in potential_collisions:
-            #
-            if agent_rect.rect_collision(obstacle_rect):
-                #
-                return True
+        ### 1. Get robot position in the grid. ###
+        #
+        robot_grid_x: int = int((robot_pos.x - self.env_bounds.corner_top_left.x) / self.env_precision)
+        robot_grid_y: int = int((robot_pos.y - self.env_bounds.corner_top_left.y) / self.env_precision)
 
         #
-        return False
-
-    #
-    def get_collision_height(self, agent_rect: 'Rect2d', default_height: float = 0.0) -> float:
-        """
-        Returns the height of the first colliding environment rectangle found.
-        If no collision is detected, returns the default_height.
-        """
-
+        ### 2. Determine the range of indices to extract. ###
         #
-        ### Step 1: Use the Quadtree for a quick list of potential obstacles. ###
+        view_range_grid: int = int(robot_view_range / self.env_precision)
+        
         #
-        potential_collisions: list['Rect2d'] = self.get_potential_collisions(agent_rect)
+        start_x: int = robot_grid_x - view_range_grid
+        end_x: int = robot_grid_x + view_range_grid
+        start_y: int = robot_grid_y - view_range_grid
+        end_y: int = robot_grid_y + view_range_grid
 
         #
-        ### Step 2: Check for actual collision and return the height. ###
+        ### 3. Extract the sub-matrix. ###
         #
-        for obstacle_rect in potential_collisions:
-            #
-            ### Check for 2D overlap. ###
-            #
-            if agent_rect.rect_collision(obstacle_rect):
-                #
-                ### Return the height of the first colliding obstacle. ###
-                #
-                return obstacle_rect.height
+        # Create a zero-filled matrix of the desired size
+        vision_matrix_size_x: int = end_x - start_x
+        vision_matrix_size_y: int = end_y - start_y
+        vision_matrix: NDArray[np.float64] = np.zeros((vision_matrix_size_x, vision_matrix_size_y), dtype=np.float64)
+
+        # Calculate overlap with the environment matrix
+        env_max_x, env_max_y = self.env_matrix.shape
+        
+        # Intersection in environment coordinates
+        inter_start_x: int = max(0, start_x)
+        inter_end_x: int = min(env_max_x, end_x)
+        inter_start_y: int = max(0, start_y)
+        inter_end_y: int = min(env_max_y, end_y)
+
+        # If there is an overlap, copy the data
+        if inter_start_x < inter_end_x and inter_start_y < inter_end_y:
+            # Calculate where to paste in the vision matrix
+            paste_start_x: int = inter_start_x - start_x
+            paste_end_x: int = paste_start_x + (inter_end_x - inter_start_x)
+            paste_start_y: int = inter_start_y - start_y
+            paste_end_y: int = paste_start_y + (inter_end_y - inter_start_y)
+            
+            vision_matrix[paste_start_x:paste_end_x, paste_start_y:paste_end_y] = \
+                self.env_matrix[inter_start_x:inter_end_x, inter_start_y:inter_end_y]
 
         #
-        ### Step 3: If no collision, return the default height. ###
-        #   
-        return default_height
+        ### 4. Flatten vision and concatenate with state. ###
+        #
+        state_vector: NDArray[np.float64] = np.array([
+            robot_pos.x, robot_pos.y, robot_pos.z,
+            robot_rot.x, robot_rot.y, robot_rot.z,
+            robot_speed.x, robot_speed.y, robot_speed.z,
+            robot_acceleration.x, robot_acceleration.y, robot_acceleration.z
+        ], dtype=np.float64)
 
+        return np.concatenate((vision_matrix.flatten(), state_vector))
 
 #
 viewer: Any = cast(Any, viewer_)  # fix to remove pylance type hinting errors with mujoco.viewer stubs errors
