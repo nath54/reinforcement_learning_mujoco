@@ -908,7 +908,7 @@ class RootWorldScene:
         #
         option: ET.Element = ET.Element('option')
         #
-        option.set('timestep', '0.001')
+        option.set('timestep', '0.01')
         option.set("gravity", "0 0 -0.20")
         option.set('solver', 'Newton')
         option.set('iterations', '500')
@@ -1696,18 +1696,13 @@ class CorridorEnv:
         obs = self.get_observation()
         
         # Reward
-        # 1. Progress reward
+        # 1. Progress reward (Continuous)
+        # Use velocity in X direction for smoother continuous reward
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
-        x_pos = self.data.xpos[robot_id][0]
+        x_vel = self.data.cvel[robot_id][0]
         
-        # Store prev x in self to calc diff
-        if not hasattr(self, 'prev_x'):
-            self.prev_x = x_pos
-            
-        progress = x_pos - self.prev_x
-        self.prev_x = x_pos
-        
-        reward = progress * 10.0 # Scale up
+        # Reward is proportional to forward velocity
+        reward = x_vel * 1.0
         
         # 2. Survival reward (optional)
         reward += 0.01
@@ -1717,10 +1712,10 @@ class CorridorEnv:
         # If fell off
         if self.data.xpos[robot_id][2] < -5.0:
             done = True
-            reward -= 10.0
+            # No penalty for falling off, just end episode
             
         # If reached end (e.g. 100m)
-        if x_pos > 100.0:
+        if self.data.xpos[robot_id][0] > 100.0:
             done = True
             reward += 100.0
             
@@ -1807,18 +1802,22 @@ class PPOAgent:
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
         
-        self.policy = ActorCritic(state_dim, action_dim).float()
+        # Detect device
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"PPOAgent using device: {self.device}")
+        
+        self.policy = ActorCritic(state_dim, action_dim).float().to(self.device)
         self.optimizer = optim.Adam(self.policy.parameters(), lr=lr)
-        self.policy_old = ActorCritic(state_dim, action_dim).float()
+        self.policy_old = ActorCritic(state_dim, action_dim).float().to(self.device)
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         self.MseLoss = nn.MSELoss()
         
     def select_action(self, state):
         with torch.no_grad():
-            state = torch.FloatTensor(state)
+            state = torch.FloatTensor(state).to(self.device)
             action, action_logprob = self.policy_old.act(state)
-        return action.numpy(), action_logprob
+        return action.cpu().numpy(), action_logprob.cpu()
         
     def update(self, memory):
         # Convert list to tensor
@@ -1830,12 +1829,13 @@ class PPOAgent:
             discounted_reward = reward + (self.gamma * discounted_reward)
             rewards.insert(0, discounted_reward)
             
-        rewards = torch.tensor(rewards, dtype=torch.float32)
+        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
         rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
         
-        old_states = torch.squeeze(torch.stack(memory.states, dim=0)).detach()
-        old_actions = torch.squeeze(torch.stack(memory.actions, dim=0)).detach()
-        old_logprobs = torch.squeeze(torch.stack(memory.logprobs, dim=0)).detach()
+        # Stack and move to device
+        old_states = torch.stack(memory.states).to(self.device).detach()
+        old_actions = torch.stack(memory.actions).to(self.device).detach()
+        old_logprobs = torch.stack(memory.logprobs).to(self.device).detach()
         
         # Optimize policy for K epochs
         for _ in range(self.K_epochs):
@@ -1843,7 +1843,7 @@ class PPOAgent:
             
             state_values = torch.squeeze(state_values)
             
-            ratios = torch.exp(logprobs - old_logprobs.detach())
+            ratios = torch.exp(logprobs - old_logprobs)
             
             advantages = rewards - state_values.detach()
             
@@ -2229,7 +2229,8 @@ class Main:
         agent = PPOAgent(state_dim, action_dim)
         
         try:
-            agent.policy.load_state_dict(torch.load(model_path))
+            # Load model to cpu first then move to device
+            agent.policy.load_state_dict(torch.load(model_path, map_location=agent.device))
             agent.policy.eval() # Set to eval mode
             print("Model loaded successfully.")
         except Exception as e:
