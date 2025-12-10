@@ -1783,19 +1783,37 @@ class CorridorEnv:
         # Use velocity in X direction for smoother continuous reward
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
         x_vel = self.data.cvel[robot_id][0]
+        y_pos = self.data.xpos[robot_id][1]
         
         # Reward is proportional to forward velocity
-        reward = x_vel * 1.0
+        # Increased weight for x_vel from 1.0 to 2.0 to incentivize speed
+        reward = x_vel * 2.0
         
         # 2. Survival reward (optional)
-        reward += 0.01
+        # Increased to encourage staying alive longer
+        reward += 0.1
+
+        # 3. Center corridor reward
+        # Penalize for deviating from y=0
+        # Reduced weight from 0.1 to 0.05 per user plan to avoid suicidal behavior
+        reward -= 0.05 * abs(y_pos)
         
         # Done condition
         done = False
-        # If fell off
+        
+        # Bounded environment checks (User requested margins: x < -100, |y| > 40)
+        # If driving backwards too far
+        if self.data.xpos[robot_id][0] < -100.0:
+            done = True
+            
+        # If wandering off sideways too far
+        if abs(self.data.xpos[robot_id][1]) > 40.0:
+            done = True
+            
+        # If fell off (z check)
         if self.data.xpos[robot_id][2] < -5.0:
             done = True
-            # No penalty for falling off, just end episode
+            # User requested NO penalty for falling off
             
         # If reached end (e.g. 100m)
         if self.data.xpos[robot_id][0] > 100.0:
@@ -1855,13 +1873,22 @@ class ActorCritic(nn.Module):
     
     def act(self, state):
         action_mean = self.actor(state)
-        cov_mat = torch.diag(self.action_var).to(state.device)
-        dist = Normal(action_mean, self.action_var.to(state.device)) # Simplified std
+        # cov_mat = torch.diag(self.action_var).to(state.device)
+        # dist = Normal(action_mean, self.action_var.to(state.device)) # Simplified std
         
         # For simplicity in this basic version, we use fixed std dev
         # Better PPO uses learnable std.
         # Let's use a simple Normal distribution
-        dist = Normal(action_mean, 0.5) # Fixed std for now
+        # Use action_var as std deviation, which can be annealed/learned if we updated it
+        # Here we use the initialized self.action_var which is 0.6*0.6 = 0.36 variance -> 0.6 std
+        # Actually in init we set action_var to action_std_init^2. 
+        # But for Normal distribution in PyTorch `scale` is standard deviation.
+        # So we should pass sqrt(action_var) or just keep a separate std parameter.
+        
+        # Simplified: Use fixed std that decays or is just larger to start with.
+        # Let's use the one passed in init (0.6)
+        action_std = torch.sqrt(self.action_var).to(state.device)
+        dist = Normal(action_mean, action_std)
         
         action = dist.sample()
         action_logprob = dist.log_prob(action).sum(axis=-1)
@@ -1870,7 +1897,10 @@ class ActorCritic(nn.Module):
     
     def evaluate(self, state, action):
         action_mean = self.actor(state)
-        dist = Normal(action_mean, 0.5)
+        
+        # Use same std as act
+        action_std = torch.sqrt(self.action_var).to(state.device)
+        dist = Normal(action_mean, action_std)
         
         action_logprobs = dist.log_prob(action).sum(axis=-1)
         dist_entropy = dist.entropy().sum(axis=-1)
@@ -2319,9 +2349,14 @@ class Main:
                 # Avoid division by zero
                 if print_running_episodes == 0:
                     print_running_episodes = 1
-                    
+                
+                # Also calculate avg reward per step to detect if episodes are just getting very long
+                # We know exactly how many steps passed: `steps_per_update * 10`
+                total_steps_in_log_interval = steps_per_update * 10 
                 avg_reward = print_running_reward / print_running_episodes
-                print(f"Update {i_episode} \t Avg Reward per Episode: {avg_reward:.2f} \t Total Episodes: {print_running_episodes}")
+                avg_reward_per_step = print_running_reward / total_steps_in_log_interval
+                
+                print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.2f} \t Avg Reward/Step: {avg_reward_per_step:.4f} \t Total Episodes: {print_running_episodes}")
                 print_running_reward = 0
                 print_running_episodes = 0
                 
@@ -2420,6 +2455,8 @@ if __name__ == "__main__":
     parser.add_argument('--train', action="store_true", default=False, help="Train the RL agent")
     parser.add_argument('--play', action="store_true", default=False, help="Play with trained model")
     parser.add_argument('--model_path', type=str, default="ppo_robot_corridor.pth", help="Path to model file")
+    parser.add_argument('--episodes', type=int, default=1000, help="Number of episodes/updates to train")
+    parser.add_argument('--update_timestep', type=int, default=4000, help="Timesteps per update")
     #
     args: argparse.Namespace = parser.parse_args()
 
@@ -2429,7 +2466,11 @@ if __name__ == "__main__":
             mp.set_start_method('spawn', force=True)
         except RuntimeError:
             pass
-        Main.train()
+        
+        # Allow user to override max_episodes via another arg or just reuse one
+        # To be clean, we should have added arguments to argparse.
+        # Re-parsing here or just calling with args if we added them.
+        Main.train(max_episodes=args.episodes, update_timestep=args.update_timestep)
     elif args.play:
         Main.play(model_path=args.model_path)
     elif args.render_video:
