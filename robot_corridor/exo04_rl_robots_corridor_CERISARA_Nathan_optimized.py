@@ -2280,7 +2280,7 @@ class Main:
 
     #
     @staticmethod
-    def train(max_episodes=1000, max_timesteps=2000, update_timestep=4000, lr=0.002, gamma=0.99, K_epochs=4, eps_clip=0.2):
+    def train(max_episodes=1000, max_timesteps=2000, update_timestep=4000, lr=0.002, gamma=0.99, K_epochs=4, eps_clip=0.2, model_path="ppo_robot_corridor.pth", load_weights_from=None):
         print("Starting training...")
         
         # Determine number of environments
@@ -2303,6 +2303,31 @@ class Main:
         
         # Initial reset
         state = envs.reset()
+
+        # Load weights if requested
+        if load_weights_from and os.path.exists(load_weights_from):
+            print(f"Loading initial weights from {load_weights_from}...")
+            try:
+                agent.policy.load_state_dict(torch.load(load_weights_from, map_location=agent.device))
+                agent.policy_old.load_state_dict(agent.policy.state_dict())
+                print("Weights loaded successfully.")
+            except Exception as e:
+                print(f"Error loading weights: {e}")
+
+        # Initialize best reward tracking
+        best_reward = -float('inf')
+        best_model_path = model_path.replace(".pth", "_best.pth")
+        best_model_info_path = model_path.replace(".pth", "_best.json")
+        
+        # Try to load previous best score if exists
+        if os.path.exists(best_model_info_path):
+            try:
+                with open(best_model_info_path, 'r') as f:
+                    info = json.load(f)
+                    best_reward = info.get('best_reward', -float('inf'))
+                print(f"Resuming with previous best reward record: {best_reward}")
+            except Exception as e:
+                print(f"Could not load previous best info: {e}")
         
         while i_episode < max_episodes:
             
@@ -2360,8 +2385,18 @@ class Main:
                 print_running_reward = 0
                 print_running_episodes = 0
                 
-                # Save model
-                torch.save(agent.policy.state_dict(), "ppo_robot_corridor.pth")
+                # Save latest model
+                torch.save(agent.policy.state_dict(), model_path)
+                
+                # Check for best model
+                if avg_reward > best_reward:
+                    best_reward = avg_reward
+                    print(f"New best reward: {best_reward:.2f}! Saving best model...")
+                    torch.save(agent.policy.state_dict(), best_model_path)
+                    
+                    # Save metadata
+                    with open(best_model_info_path, 'w') as f:
+                        json.dump({'best_reward': best_reward, 'episode': i_episode}, f)
         
         envs.close()
                 
@@ -2457,6 +2492,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_path', type=str, default="ppo_robot_corridor.pth", help="Path to model file")
     parser.add_argument('--episodes', type=int, default=1000, help="Number of episodes/updates to train")
     parser.add_argument('--update_timestep', type=int, default=4000, help="Timesteps per update")
+    parser.add_argument('--load_weights_from', type=str, default=None, help="Path to load initial weights from")
     #
     args: argparse.Namespace = parser.parse_args()
 
@@ -2470,7 +2506,7 @@ if __name__ == "__main__":
         # Allow user to override max_episodes via another arg or just reuse one
         # To be clean, we should have added arguments to argparse.
         # Re-parsing here or just calling with args if we added them.
-        Main.train(max_episodes=args.episodes, update_timestep=args.update_timestep)
+        Main.train(max_episodes=args.episodes, update_timestep=args.update_timestep, model_path=args.model_path, load_weights_from=args.load_weights_from)
     elif args.play:
         Main.play(model_path=args.model_path)
     elif args.render_video:
