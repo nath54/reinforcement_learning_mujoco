@@ -358,11 +358,11 @@ RENDER_HEIGHT: int = 1024
 
 #
 GENERATE_CORRIDOR_PARAM: dict[str, Any] = {
-    "corridor_length": ValType(100.0),
+    "corridor_length": ValType(200.0),
     "corridor_width": ValType(3.0),
     "obstacles_mode": "sinusoidal",
     "obstacles_mode_param": {
-        "obstacle_sep": ValType( 4.0 ),
+        "obstacle_sep": ValType( 5.0 ),
         "obstacle_size_x": ValType( 0.4 ),
         "obstacle_size_y": ValType( 0.4 ),
         "obstacle_size_z": ValType( 0.2 ),
@@ -482,6 +482,7 @@ class Corridor:
         corridor_width: ValType = ValType(3.0),                 # Value, or random in [min_value, max_value]
         obstacles_mode: str = "none",                           # 'none', 'sinusoidal`, `double_sinusoidal`, `random`
         obstacles_mode_param: Optional[dict[str, Any]] = None,  # specific parameters for `obstacles_mode`, ex: `obstacle_separation` for `sinusoidal` mode
+        corridor_shift_x: float = -25.0,
     ) -> dict[str, Any]:
 
         #
@@ -527,13 +528,13 @@ class Corridor:
         )
 
         #
-        ## Add the two walls. ##
+        ## Add the four walls. ##
         #
         ## Wall 1 (Negative Y side) ##
         #
         wall_1_x: float = corridor_length_
         wall_1_y_center: float = -corridor_width_
-        wall_1_half_x: float = corridor_length_
+        wall_1_half_x: float = corridor_length_ - corridor_shift_x
         wall_1_half_y: float = wall_width
         wall_1_height: float = wall_height
 
@@ -575,6 +576,60 @@ class Corridor:
                 corner_top_left=Point2d(x = wall_2_x - wall_1_half_x, y = wall_2_y_center - wall_1_half_y),
                 corner_bottom_right=Point2d(x = wall_2_x + wall_1_half_x, y = wall_2_y_center + wall_1_half_y),
                 height=wall_1_height * 2
+            )
+        )
+
+        #
+        ## Wall 3 (Negative X side) ##
+        #
+        wall_3_x_center: float = corridor_shift_x
+        wall_3_y: float = 0
+        wall_3_half_x: float = wall_width
+        wall_3_half_y: float = corridor_width_
+        wall_3_height: float = wall_height
+
+        #
+        components_body.append(
+            create_geom(
+                name="wall_3",
+                geom_type="box",
+                size=Vec3(x = wall_3_half_x, y = wall_3_half_y, z = wall_3_height),
+                pos=Vec3(x = wall_3_x_center, y = wall_3_y, z = wall_3_height)
+            )
+        )
+        #
+        environment_rects.append(
+            Rect2d(
+                corner_top_left=Point2d(x = wall_3_x_center - wall_3_half_x, y = wall_3_y - wall_3_half_y),
+                corner_bottom_right=Point2d(x = wall_3_x_center + wall_3_half_x, y = wall_3_y + wall_3_half_y),
+                height=wall_3_height * 2
+            )
+        )
+
+        #
+        ## Wall 4 (Positive X side) ##
+        #
+        wall_4_x_center: float = 2 * corridor_length_ - corridor_shift_x
+        wall_4_y: float = 0
+        wall_4_half_x: float = wall_width
+        wall_4_half_y: float = corridor_width_
+        wall_4_height: float = wall_height
+
+        #
+        components_body.append(
+            create_geom(
+                name="wall_4",
+                geom_type="box",
+                size=Vec3(x = wall_4_half_x, y = wall_4_half_y, z = wall_4_height),
+                pos=Vec3(x = wall_4_x_center, y = wall_4_y, z = wall_4_height)
+            )
+        )
+        #
+        environment_rects.append(
+            Rect2d(
+                corner_top_left=Point2d(x = wall_4_x_center - wall_4_half_x, y = wall_4_y - wall_4_half_y),
+                corner_bottom_right=Point2d(x = wall_4_x_center + wall_4_half_x, y = wall_4_y + wall_4_half_y),
+                height=wall_4_height * 2
             )
         )
 
@@ -1853,7 +1908,11 @@ class ActorCritic(nn.Module):
         self.actor = nn.Sequential(
             nn.Linear(state_dim, 64),
             nn.Tanh(),
-            nn.Linear(64, 64),
+            nn.Linear(64, 128),
+            nn.Tanh(),
+            nn.Linear(128, 256),
+            nn.Tanh(),
+            nn.Linear(256, 64),
             nn.Tanh(),
             nn.Linear(64, action_dim),
             nn.Tanh() # Output -1 to 1
@@ -1863,7 +1922,11 @@ class ActorCritic(nn.Module):
         self.critic = nn.Sequential(
             nn.Linear(state_dim, 64),
             nn.Tanh(),
-            nn.Linear(64, 64),
+            nn.Linear(64, 128),
+            nn.Tanh(),
+            nn.Linear(128, 256),
+            nn.Tanh(),
+            nn.Linear(256, 64),
             nn.Tanh(),
             nn.Linear(64, 1)
         )
