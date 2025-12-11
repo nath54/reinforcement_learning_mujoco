@@ -7,6 +7,7 @@ import os
 import json
 import argparse
 import random
+import time
 #
 from math import floor, sin, pi
 #
@@ -41,88 +42,199 @@ from multiprocessing import Process, Pipe
 
 
 
-def worker(remote, parent_remote, env_fn_wrapper):
+#
+def worker(remote: Any, parent_remote: Any, env_fn_wrapper: Any) -> None:
+
+    #
     parent_remote.close()
+
+    #
     try:
-        env = env_fn_wrapper()
+        #
+        env: Any = env_fn_wrapper()
+
+    #
     except Exception as e:
+
+        #
         print(f"Worker initialization failed: {e}")
+
+        #
         import traceback
+        #
         traceback.print_exc()
+        #
         parent_remote.close()
+        #
         return
+
+    #
     while True:
+
+        #
+        cmd: str
+        data: Any
+        #
         cmd, data = remote.recv()
+
+        #
         if cmd == 'step':
+            
+            #
+            ob: Any
+            reward: float
+            done: bool
+            info: Any
+            #
             ob, reward, done, info = env.step(data)
+            #
             if done:
+                #
                 ob = env.reset()
+            #
             remote.send((ob, reward, done, info))
+
+        #
         elif cmd == 'reset':
-            ob = env.reset()
+            #
+            ob: Any = env.reset()
+            #
             remote.send(ob)
+
+        #
         elif cmd == 'close':
+            #
             remote.close()
+            #
             break
+
+        #
         elif cmd == 'get_spaces':
+            #
             remote.send((env.observation_space, env.action_space))
+
+        #
         else:
+            #
             raise NotImplementedError
 
 
-
+#
 class SubprocVecEnv:
-    def __init__(self, env_fns):
+
+    #
+    def __init__(self, env_fns: list[Any]) -> None:
         """
         envs: list of gym environments to run in subprocesses
         """
-        self.waiting = False
-        self.closed = False
-        nenvs = len(env_fns)
+
+        #
+        self.waiting: bool = False
+        self.closed: bool = False
+
+        #
+        nenvs: int = len(env_fns)
+
+        #
+        self.remotes: tuple[Any, ...]
+        self.work_remotes: tuple[Any, ...]
         self.remotes, self.work_remotes = zip(*[Pipe() for _ in range(nenvs)])
-        self.ps = [Process(target=worker, args=(work_remote, remote, env_fn))
-            for (work_remote, remote, env_fn) in zip(self.work_remotes, self.remotes, env_fns)]
+        self.ps: list[Process] = [
+            Process(target=worker, args=(work_remote, remote, env_fn))
+            for (work_remote, remote, env_fn) in zip(self.work_remotes, self.remotes, env_fns)
+        ]
+
+        #
         for p in self.ps:
-            p.daemon = True # if the main process crashes, we should not cause things to hang
+            #
+            ### if the main process crashes, we should not cause things to hang. ###
+            #
+            p.daemon = True
+            #
             p.start()
+
+        #
         for remote in self.work_remotes:
+            #
             remote.close()
 
-    def step_async(self, actions):
+    #
+    def step_async(self, actions: NDArray[Any] | list[Any]) -> None:
+
+        #
         for remote, action in zip(self.remotes, actions):
+            #
             remote.send(('step', action))
+
+        #
         self.waiting = True
 
-    def step_wait(self):
-        results = [remote.recv() for remote in self.remotes]
+    #
+    def step_wait(self) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.bool_], Any]:
+
+        #
+        results: list[Any] = [remote.recv() for remote in self.remotes]
+        #
         self.waiting = False
+
+        #
+        obs: Any
+        rews: Any
+        dones: Any
+        infos: Any
+        #
         obs, rews, dones, infos = zip(*results)
+
+        #
         return np.stack(obs), np.stack(rews), np.stack(dones), infos
 
-    def step(self, actions):
+    #
+    def step(self, actions: NDArray[Any] | list[Any]) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.bool_], Any]:
+
+        #
         self.step_async(actions)
+
+        #
         return self.step_wait()
 
-    def reset(self):
+    #
+    def reset(self) -> NDArray[np.float64]:
+
+        #
         for remote in self.remotes:
+            #
             remote.send(('reset', None))
+
+        #
         return np.stack([remote.recv() for remote in self.remotes])
 
-    def close(self):
+    #
+    def close(self) -> None:
+
+        #
         if self.closed:
+            #
             return
+
+        #
         if self.waiting:
-            for remote in self.remotes:            
+            #
+            for remote in self.remotes:
+                #
                 remote.recv()
+
+        #
         for remote in self.remotes:
+            #
             remote.send(('close', None))
+
+        #
         for p in self.ps:
+            #
             p.join()
+
+        #
         self.closed = True
-
-
-
-
 
 
 #
@@ -2301,7 +2413,10 @@ class Main:
 
     #
     @staticmethod
-    def main(render_mode: bool = False) -> None:
+    def main(
+        render_mode: bool = False,
+        fps: float = 60
+    ) -> None:
 
         #
         root_scene: RootWorldScene = RootWorldScene()
@@ -2381,10 +2496,23 @@ class Main:
             #
             ### Mainloop. ###
             #
+            sec_delay: float = 1.0 / fps
+            #
+            t: float = time.time()
+            #
             while viewer_instance.is_running() and not state.controls.quit_requested:
 
                 #
                 state = Main.state_step(state)
+
+                #
+                tt: float = time.time()
+                #
+                d: float = tt - t
+                #
+                if d < sec_delay:
+                    #
+                    time.sleep( (sec_delay - d) )
 
         #
         robot_track.plot_tracking()
@@ -2513,20 +2641,18 @@ class Main:
                         writer.add_image(pixels)  # type: ignore
 
 
-
-
     #
     @staticmethod
     def train(
-        max_episodes=1000,
-        max_timesteps=2000,
-        update_timestep=4000,
-        lr=0.002,
-        gamma=0.99,
-        K_epochs=4,
-        eps_clip=0.2,
-        model_path="ppo_robot_corridor.pth",
-        load_weights_from=None
+        max_episodes: int = 1000,
+        max_timesteps: int = 2000,
+        update_timestep: int = 4000,
+        lr: float = 0.002,
+        gamma: float = 0.99,
+        K_epochs: int = 4,
+        eps_clip: float  =0.2,
+        model_path: str = "ppo_robot_corridor.pth",
+        load_weights_from: Optional[str] = None
     ) -> None:
 
         #
@@ -2540,23 +2666,23 @@ class Main:
         print(f"Using {num_envs} parallel environments.")
 
         #   
-        envs = SubprocVecEnv([make_env for _ in range(num_envs)])
+        envs: SubprocVecEnv = SubprocVecEnv([make_env for _ in range(num_envs)])
         
         #
-        state_dim = 3612 # Vision (60x60=3600) + State (12)
-        action_dim = 4
+        state_dim: int = 3612 # Vision (60x60=3600) + State (12)
+        action_dim: int = 4
         
         #
-        agent = PPOAgent(state_dim, action_dim, lr, gamma, K_epochs, eps_clip)
-        memory = Memory()
+        agent: PPOAgent = PPOAgent(state_dim, action_dim, lr, gamma, K_epochs, eps_clip)
+        memory: Memory = Memory()
         
         #
-        print_running_reward = 0
-        print_running_episodes = 0
+        print_running_reward: int = 0
+        print_running_episodes: int = 0
         
         #
-        time_step = 0
-        i_episode = 0
+        time_step: int = 0
+        i_episode: int = 0
         
         #
         ### Initial reset. ###
