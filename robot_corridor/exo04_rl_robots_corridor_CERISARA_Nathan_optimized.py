@@ -373,18 +373,22 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
 
         #
         for rect in environment_obstacles:
+
             #
             start_x: int = int((rect.corner_top_left.x - env_bounds.corner_top_left.x) / env_precision)
             end_x: int = int((rect.corner_bottom_right.x - env_bounds.corner_top_left.x) / env_precision)
             start_y: int = int((rect.corner_top_left.y - env_bounds.corner_top_left.y) / env_precision)
             end_y: int = int((rect.corner_bottom_right.y - env_bounds.corner_top_left.y) / env_precision)
-            
-            # Clip to bounds
+
+            #            
+            ### Clip to bounds. ###
+            #
             start_x = max(0, start_x)
             end_x = min(self.env_matrix.shape[0], end_x)
             start_y = max(0, start_y)
             end_y = min(self.env_matrix.shape[1], end_y)
             
+            #
             self.env_matrix[start_x:end_x, start_y:end_y] = rect.height
 
     #
@@ -422,28 +426,41 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
         #
         ### 3. Extract the sub-matrix. ###
         #
-        # Create a zero-filled matrix of the desired size
+
+        #
+        ### Create a zero-filled matrix of the desired size. ###
+        #
         vision_matrix_size_x: int = end_x - start_x
         vision_matrix_size_y: int = end_y - start_y
         vision_matrix: NDArray[np.float64] = np.zeros((vision_matrix_size_x, vision_matrix_size_y), dtype=np.float64)
 
-        # Calculate overlap with the environment matrix
+        #
+        ### Calculate overlap with the environment matrix. ###
+        #
         env_max_x, env_max_y = self.env_matrix.shape
         
-        # Intersection in environment coordinates
+        #
+        ### Intersection in environment coordinates. ###
+        #
         inter_start_x: int = max(0, start_x)
         inter_end_x: int = min(env_max_x, end_x)
         inter_start_y: int = max(0, start_y)
         inter_end_y: int = min(env_max_y, end_y)
 
-        # If there is an overlap, copy the data
+        #
+        ### If there is an overlap, copy the data. ###
+        #
         if inter_start_x < inter_end_x and inter_start_y < inter_end_y:
-            # Calculate where to paste in the vision matrix
+
+            #
+            ### Calculate where to paste in the vision matrix. ###
+            #
             paste_start_x: int = inter_start_x - start_x
             paste_end_x: int = paste_start_x + (inter_end_x - inter_start_x)
             paste_start_y: int = inter_start_y - start_y
             paste_end_y: int = paste_start_y + (inter_end_y - inter_start_y)
             
+            #
             vision_matrix[paste_start_x:paste_end_x, paste_start_y:paste_end_y] = \
                 self.env_matrix[inter_start_x:inter_end_x, inter_start_y:inter_end_y]
 
@@ -457,7 +474,9 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
             robot_acceleration.x, robot_acceleration.y, robot_acceleration.z
         ], dtype=np.float64)
 
+        #
         return np.concatenate((vision_matrix.flatten(), state_vector))
+
 
 #
 viewer: Any = cast(Any, viewer_)  # fix to remove pylance type hinting errors with mujoco.viewer stubs errors
@@ -476,7 +495,7 @@ GENERATE_CORRIDOR_PARAM: dict[str, Any] = {
     "corridor_width": ValType(3.0),
     "obstacles_mode": "sinusoidal",
     "obstacles_mode_param": {
-        "obstacle_sep": ValType( 5.0 ),
+        "obstacle_sep": ValType( 10.0 ),
         "obstacle_size_x": ValType( 0.4 ),
         "obstacle_size_y": ValType( 0.4 ),
         "obstacle_size_z": ValType( 0.2 ),
@@ -2650,7 +2669,7 @@ class Main:
         lr: float = 0.002,
         gamma: float = 0.99,
         K_epochs: int = 4,
-        eps_clip: float  =0.2,
+        eps_clip: float = 0.2,
         model_path: str = "ppo_robot_corridor.pth",
         load_weights_from: Optional[str] = None
     ) -> None:
@@ -2661,7 +2680,7 @@ class Main:
         #
         ### Determine number of environments. ###
         #
-        num_envs: int = min(8, mp.cpu_count())
+        num_envs: int = min(16, mp.cpu_count())
         #
         print(f"Using {num_envs} parallel environments.")
 
