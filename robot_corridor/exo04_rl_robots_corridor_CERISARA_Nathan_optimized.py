@@ -7,6 +7,9 @@ import os
 import json
 import argparse
 import random
+import time
+import yaml
+from dataclasses import dataclass, field
 #
 from math import floor, sin, pi
 #
@@ -38,13 +41,77 @@ import torch.optim as optim
 from torch.distributions import Normal
 import multiprocessing as mp
 from multiprocessing import Process, Pipe
+import gymnasium as gym
+from gymnasium import spaces
 
 
 
-def worker(remote, parent_remote, env_fn_wrapper):
+@dataclass
+class SimulationConfig:
+    corridor_length: float = 100.0
+    corridor_width: float = 3.0
+    robot_view_range: float = 3.0
+    max_steps: int = 2000
+    env_precision: float = 0.1
+
+@dataclass
+class RobotConfig:
+    xml_path: str = "four_wheels_robot.xml"
+
+@dataclass
+class RewardConfig:
+    goal: float = 100.0
+    collision: float = -0.05
+    straight_line_penalty: float = 0.5
+    straight_line_dist: float = 15.0
+
+@dataclass
+class TrainingConfig:
+    agent_type: str = "ppo"
+    max_episodes: int = 1000
+    model_path: str = "ppo_robot_corridor.pth"
+    load_weights_from: Optional[str] = None
+    learning_rate: float = 0.002
+    gamma: float = 0.99
+    k_epochs: int = 4
+    eps_clip: float = 0.2
+    update_timestep: int = 4000
+
+@dataclass
+class SimConfig:
+    simulation: SimulationConfig = field(default_factory=SimulationConfig)
+    robot: RobotConfig = field(default_factory=RobotConfig)
+    rewards: RewardConfig = field(default_factory=RewardConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
+    
+    @staticmethod
+    def load(path: str) -> "SimConfig":
+        if not os.path.exists(path):
+            print(f"Config file {path} not found, using defaults.")
+            return SimConfig()
+        with open(path, 'r') as f:
+            try:
+                data = yaml.safe_load(f)
+                # Handle nested loading
+                sim_config = SimulationConfig(**data.get('simulation', {}))
+                robot_config = RobotConfig(**data.get('robot', {}))
+                reward_config = RewardConfig(**data.get('rewards', {}))
+                train_config = TrainingConfig(**data.get('training', {}))
+                return SimConfig(
+                    simulation=sim_config,
+                    robot=robot_config,
+                    rewards=reward_config,
+                    training=train_config
+                )
+            except Exception as e:
+                print(f"Error loading config: {e}, using defaults.")
+                return SimConfig()
+
+
+def worker(remote: Any, parent_remote: Any, env_fn_wrapper: Any) -> None:
     parent_remote.close()
     try:
-        env = env_fn_wrapper()
+        env: CorridorEnv = env_fn_wrapper()
     except Exception as e:
         print(f"Worker initialization failed: {e}")
         import traceback
@@ -52,14 +119,21 @@ def worker(remote, parent_remote, env_fn_wrapper):
         parent_remote.close()
         return
     while True:
+        cmd: str
+        data: Any
         cmd, data = remote.recv()
         if cmd == 'step':
-            ob, reward, done, info = env.step(data)
-            if done:
-                ob = env.reset()
-            remote.send((ob, reward, done, info))
+            ob: Any
+            reward: float
+            terminated: bool
+            truncated: bool
+            info: dict[str, Any]
+            ob, reward, terminated, truncated, info = env.step(data)
+            if terminated or truncated:
+                ob, _ = env.reset()
+            remote.send((ob, reward, terminated, truncated, info))
         elif cmd == 'reset':
-            ob = env.reset()
+            ob, info = env.reset()
             remote.send(ob)
         elif cmd == 'close':
             remote.close()
@@ -72,15 +146,17 @@ def worker(remote, parent_remote, env_fn_wrapper):
 
 
 class SubprocVecEnv:
-    def __init__(self, env_fns):
+    def __init__(self, env_fns: list[Any]) -> None:
         """
         envs: list of gym environments to run in subprocesses
         """
-        self.waiting = False
-        self.closed = False
-        nenvs = len(env_fns)
+        self.waiting: bool = False
+        self.closed: bool = False
+        nenvs: int = len(env_fns)
+        self.remotes: list[Any]
+        self.work_remotes: list[Any]
         self.remotes, self.work_remotes = zip(*[Pipe() for _ in range(nenvs)])
-        self.ps = [Process(target=worker, args=(work_remote, remote, env_fn))
+        self.ps: list[Process] = [Process(target=worker, args=(work_remote, remote, env_fn))
             for (work_remote, remote, env_fn) in zip(self.work_remotes, self.remotes, env_fns)]
         for p in self.ps:
             p.daemon = True # if the main process crashes, we should not cause things to hang
@@ -88,27 +164,27 @@ class SubprocVecEnv:
         for remote in self.work_remotes:
             remote.close()
 
-    def step_async(self, actions):
+    def step_async(self, actions: Any) -> None:
         for remote, action in zip(self.remotes, actions):
             remote.send(('step', action))
         self.waiting = True
 
-    def step_wait(self):
-        results = [remote.recv() for remote in self.remotes]
+    def step_wait(self) -> tuple[Any, Any, Any, Any, Any]:
+        results: list[Any] = [remote.recv() for remote in self.remotes]
         self.waiting = False
-        obs, rews, dones, infos = zip(*results)
-        return np.stack(obs), np.stack(rews), np.stack(dones), infos
+        obs, rews, terms, truncs, infos = zip(*results)
+        return np.stack(obs), np.stack(rews), np.stack(terms), np.stack(truncs), infos
 
-    def step(self, actions):
+    def step(self, actions: Any) -> tuple[Any, Any, Any, Any, Any]:
         self.step_async(actions)
         return self.step_wait()
 
-    def reset(self):
+    def reset(self) -> Any:
         for remote in self.remotes:
             remote.send(('reset', None))
         return np.stack([remote.recv() for remote in self.remotes])
 
-    def close(self):
+    def close(self) -> None:
         if self.closed:
             return
         if self.waiting:
@@ -119,10 +195,6 @@ class SubprocVecEnv:
         for p in self.ps:
             p.join()
         self.closed = True
-
-
-
-
 
 
 #
@@ -215,6 +287,7 @@ class Rect2d:
 
         #
         return (p.x >= self.corner_top_left.x and p.x <= self.corner_top_right) and (p.y >= self.corner_top_left.y and p.y <= self.corner_bottom_left.y)
+        return (p.x >= self.corner_top_left.x and p.x <= self.corner_top_right.x) and (p.y >= self.corner_top_left.y and p.y <= self.corner_bottom_left.y)
 
     #
     def rect_collision(self, r: "Rect2d") -> bool:
@@ -306,6 +379,14 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
         end_x: int = robot_grid_x + view_range_grid
         start_y: int = robot_grid_y - view_range_grid
         end_y: int = robot_grid_y + view_range_grid
+        
+        #
+        ### Calculate vision size dynamically. ###
+        #
+        vision_width = end_x - start_x
+        vision_height = end_y - start_y
+        #
+        # print(f"Vision size: {vision_width}x{vision_height} = {vision_width * vision_height}")
 
         #
         ### 3. Extract the sub-matrix. ###
@@ -347,9 +428,9 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
 
         return np.concatenate((vision_matrix.flatten(), state_vector))
 
+
 #
 viewer: Any = cast(Any, viewer_)  # fix to remove pylance type hinting errors with mujoco.viewer stubs errors
-
 
 #
 CTRL_SAVE_PATH: str = "saved_control.json"
@@ -361,10 +442,10 @@ RENDER_HEIGHT: int = 1024
 #
 GENERATE_CORRIDOR_PARAM: dict[str, Any] = {
     "corridor_length": ValType(200.0),
-    "corridor_width": ValType(3.0),
+    "corridor_width": ValType(4.0),
     "obstacles_mode": "sinusoidal",
     "obstacles_mode_param": {
-        "obstacle_sep": ValType( 5.0 ),
+        "obstacle_sep": ValType( 10.0 ),
         "obstacle_size_x": ValType( 0.4 ),
         "obstacle_size_y": ValType( 0.4 ),
         "obstacle_size_z": ValType( 0.2 ),
@@ -725,10 +806,10 @@ class Corridor:
 class Robot:
 
     #
-    def __init__(self) -> None:
+    def __init__(self, config: SimConfig = SimConfig()) -> None:
 
         #
-        self.xml_file_path: str = "four_wheels_robot.xml"
+        self.xml_file_path: str = config.robot.xml_path
 
         #
         ### Parse the existing XML file. ###
@@ -979,12 +1060,12 @@ class Robot:
 class RootWorldScene:
 
     #
-    def __init__(self) -> None:
+    def __init__(self, config: Optional[SimConfig] = None) -> None:
 
         #
         self.corridor: Corridor = Corridor()
         #
-        self.robot: Robot = Robot()
+        self.robot: Robot = Robot(config=config) if config else Robot()
 
         #
         self.mujoco_model: mujoco.MjModel
@@ -1215,6 +1296,7 @@ class RootWorldScene:
     #
     def construct_scene(
         self,
+        config: SimConfig,
         floor_type: str = "standard",
         robot_height: float = 1.0
     ) -> None:
@@ -1222,7 +1304,12 @@ class RootWorldScene:
         #
         ### Build combined model with enhanced visuals and physics. ###
         #
-        corridor_components = self.corridor.generate_corridor(**GENERATE_CORRIDOR_PARAM)
+        corridor_components = self.corridor.generate_corridor(
+            corridor_length=ValType(config.simulation.corridor_length),
+            corridor_width=ValType(config.simulation.corridor_width),
+            obstacles_mode="sinusoidal",
+            obstacles_mode_param=GENERATE_CORRIDOR_PARAM["obstacles_mode_param"]
+        )
         
         #
         ### Store rects. ##
@@ -1234,9 +1321,11 @@ class RootWorldScene:
         #
         ### Large bounds for the scene. ###
         #
-        bounds_margin: int = 100
-        #
-        self.env_bounds = Rect2d(Point2d(-bounds_margin, -bounds_margin), Point2d(bounds_margin, bounds_margin))
+        margin = 50.0
+        self.env_bounds = Rect2d(
+            Point2d(-margin, -config.simulation.corridor_width - margin), 
+            Point2d(config.simulation.corridor_length + margin, config.simulation.corridor_width + margin)
+        )
         
         #
         self.mujoco_model = self.build_combined_model(
@@ -1784,15 +1873,16 @@ class State:
 
 
 #
-class CorridorEnv:
+class CorridorEnv(gym.Env):
 
     #
-    def __init__(self, render_mode: bool = False) -> None:
+    def __init__(self, config: SimConfig = SimConfig(), render_mode: bool = False) -> None:
 
         #
+        self.config = config
         self.render_mode = render_mode
-        self.root_scene = RootWorldScene()
-        self.root_scene.construct_scene(floor_type="standard", robot_height=1.0)
+        self.root_scene = RootWorldScene(config=config)
+        self.root_scene.construct_scene(config=config, floor_type="standard", robot_height=1.0)
         
         #
         self.model = self.root_scene.mujoco_model
@@ -1807,8 +1897,31 @@ class CorridorEnv:
         self.collision_system = EfficientCollisionSystemBetweenEnvAndAgent(
             environment_obstacles=self.root_scene.environment_rects,
             env_bounds=self.root_scene.env_bounds,
-            env_precision=0.1
+            env_precision=config.simulation.env_precision
         )
+        
+        #
+        ### Calculate observation space size. ###
+        #
+        view_range_grid = int(config.simulation.robot_view_range / config.simulation.env_precision)
+        vision_width = 2 * view_range_grid
+        vision_height = 2 * view_range_grid
+        self.vision_size = vision_width * vision_height
+        self.state_dim = self.vision_size + 12 # 12 for state vector
+        
+        #
+        self.observation_space = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(self.state_dim,), dtype=np.float32
+        )
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0, shape=(4,), dtype=np.float32
+        )
+
+        #
+        ### Variables for straight line penalty. ###
+        #
+        self.straight_start_x: float = 0.0
+        self.straight_y: float = 0.0
 
     #
     def set_collision_system(self, collision_system: EfficientCollisionSystemBetweenEnvAndAgent):
@@ -1816,7 +1929,8 @@ class CorridorEnv:
         self.collision_system = collision_system
 
     #
-    def reset(self):
+    def reset(self, seed: Optional[int] = None, options: Optional[dict] = None) -> tuple[Any, dict[str, Any]]:
+        super().reset(seed=seed)
 
         #
         mujoco.mj_resetData(self.model, self.data)
@@ -1839,7 +1953,15 @@ class CorridorEnv:
         #
         ### Initial observation. ###
         #
-        return self.get_observation()
+        
+        #
+        ### Reset straight line tracking. ###
+        #
+        robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
+        self.straight_start_x = self.data.xpos[robot_id][0]
+        self.straight_y = self.data.xpos[robot_id][1]
+
+        return self.get_observation(), {}
 
     #
     def step(self, action):
@@ -1879,14 +2001,24 @@ class CorridorEnv:
         #
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
         x_vel = self.data.cvel[robot_id][0]
+        x_pos = self.data.xpos[robot_id][0]
         y_pos = self.data.xpos[robot_id][1]
         
         #
         ### Reward is proportional to forward velocity ###
         ### Increased weight for x_vel from 1.0 to 2.0 to incentivize speed ###
         #
+        # reward = x_vel * 2.0
+        # reward = (x_pos - 20) * 2.0 # OLD REWARD causing negative scores
+        
+        #
+        ### NEW REWARD: Velocity based to avoid negative accumulation ###
+        #
         reward = x_vel * 2.0
         
+        #
+        reward += (x_pos) / 1000.0
+
         #
         ### 2. Survival reward (optional) ###
         ### Increased to encourage staying alive longer ###
@@ -1898,46 +2030,66 @@ class CorridorEnv:
         ### Penalize for deviating from y=0 ###
         ### Reduced weight from 0.1 to 0.05 per user plan to avoid suicidal behavior ###
         #
-        reward -= 0.05 * abs(y_pos)
+        # reward -= 0.05 * abs(y_pos)
+
+        #
+        ### 4. Straight line penalty. ###
+        ### Penalize if staying in same Y radius for too long (> 15m). ###
+        #
+        y_tolerance: float = 0.5
+        if abs(y_pos - self.straight_y) < y_tolerance:
+            #
+            dist_straight: float = x_pos - self.straight_start_x
+            #
+            if dist_straight > self.config.rewards.straight_line_dist:
+                #
+                reward -= self.config.rewards.straight_line_penalty
+        else:
+            #
+            ### Reset tracking if moved out of Y radius. ###
+            #
+            self.straight_start_x = x_pos
+            self.straight_y = y_pos
         
         #
         ### Done condition. ###
         #
-        done = False
+        terminated = False
+        truncated = False
         
         #
         ### Bounded environment checks (User requested margins: x < -100, |y| > 40). ###
         ### If driving backwards too far. ###
         #
-        if self.data.xpos[robot_id][0] < -100.0:
+        if self.data.xpos[robot_id][0] < -self.config.simulation.corridor_length:
             #
-            done = True
+            truncated = True
         
         #
         ### If wandering off sideways too far. ###
         #
-        if abs(self.data.xpos[robot_id][1]) > 40.0:
+        if abs(self.data.xpos[robot_id][1]) > self.config.simulation.corridor_width + 10.0: # Margin
             #
-            done = True
+            truncated = True
             
         #
         ### If fell off (z check). ###
         #
         if self.data.xpos[robot_id][2] < -5.0:
             #
-            done = True
+            terminated = True
         
         #
         ### If reached end (e.g. 100m). ###
         #
-        if self.data.xpos[robot_id][0] > 100.0:
+        if self.data.xpos[robot_id][0] > self.config.simulation.corridor_length:
             #
-            done = True
+            terminated = True
             #
-            reward += 100.0
+            reward += self.config.rewards.goal
             
         #
-        return obs, reward, done, {}
+        return obs, reward, terminated, truncated, {}
 
     #
     def get_observation(self):
@@ -1969,7 +2121,7 @@ class CorridorEnv:
         
         #
         return self.collision_system.get_robot_vision_and_state(
-            pos, rot, vel, acc, robot_view_range=3.0
+            pos, rot, vel, acc, robot_view_range=self.config.simulation.robot_view_range
         )
 
 
@@ -2023,7 +2175,7 @@ class ActorCritic(nn.Module):
         raise NotImplementedError
     
     #
-    def act(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def act(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
 
         #
         action_mean: torch.Tensor = self.actor(state)
@@ -2055,7 +2207,7 @@ class ActorCritic(nn.Module):
         return action.detach(), action_logprob.detach()
     
     #
-    def evaluate(self, state: torch.Tensor, action: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def evaluate(self, state: torch.Tensor, action: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
         #
         action_mean: torch.Tensor = self.actor(state)
@@ -2113,7 +2265,7 @@ class PPOAgent:
         self.MseLoss: nn.MSELoss = nn.MSELoss()
         
     #
-    def select_action(self, state: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def select_action(self, state: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
         #
         with torch.no_grad():
@@ -2236,9 +2388,9 @@ class Memory:
 
 
 #
-def make_env() -> CorridorEnv:
+def make_env(config: SimConfig = SimConfig()) -> CorridorEnv:
     #
-    return cast(CorridorEnv, CorridorEnv())
+    return cast(CorridorEnv, CorridorEnv(config=config))
 
 
 #
@@ -2301,12 +2453,13 @@ class Main:
 
     #
     @staticmethod
-    def main(render_mode: bool = False) -> None:
+    def main(config: SimConfig = SimConfig(), render_mode: bool = False) -> None:
 
         #
         root_scene: RootWorldScene = RootWorldScene()
         #
         root_scene.construct_scene(
+            config=config,
             floor_type="standard",
             robot_height=1.0
         )
@@ -2381,10 +2534,22 @@ class Main:
             #
             ### Mainloop. ###
             #
+            target_dt: float = 1.0 / 240.0
+            #
             while viewer_instance.is_running() and not state.controls.quit_requested:
 
                 #
+                start_time = time.time()
+
+                #
                 state = Main.state_step(state)
+
+                #
+                ### Sync with real time. ###
+                #
+                elapsed = time.time() - start_time
+                if elapsed < target_dt:
+                    time.sleep(target_dt - elapsed)
 
         #
         robot_track.plot_tracking()
@@ -2518,16 +2683,30 @@ class Main:
     #
     @staticmethod
     def train(
-        max_episodes=1000,
-        max_timesteps=2000,
-        update_timestep=4000,
-        lr=0.002,
-        gamma=0.99,
-        K_epochs=4,
-        eps_clip=0.2,
-        model_path="ppo_robot_corridor.pth",
-        load_weights_from=None
+        config: SimConfig = SimConfig(),
+        max_episodes: Optional[int] = None,
+        max_timesteps: Optional[int] = None,
+        update_timestep: Optional[int] = None,
+        lr: Optional[float] = None,
+        gamma: Optional[float] = None,
+        K_epochs: Optional[int] = None,
+        eps_clip: Optional[float] = None,
+        model_path: Optional[str] = None,
+        load_weights_from: Optional[str] = None
     ) -> None:
+
+        #
+        ### Set defaults from config if not provided. ###
+        #
+        max_episodes = max_episodes if max_episodes is not None else config.training.max_episodes
+        max_timesteps = max_timesteps if max_timesteps is not None else config.simulation.max_steps
+        update_timestep = update_timestep if update_timestep is not None else config.training.update_timestep
+        lr = lr if lr is not None else config.training.learning_rate
+        gamma = gamma if gamma is not None else config.training.gamma
+        K_epochs = K_epochs if K_epochs is not None else config.training.k_epochs
+        eps_clip = eps_clip if eps_clip is not None else config.training.eps_clip
+        model_path = model_path if model_path is not None else config.training.model_path
+        load_weights_from = load_weights_from if load_weights_from is not None else config.training.load_weights_from
 
         #
         print("Starting training...")
@@ -2540,10 +2719,21 @@ class Main:
         print(f"Using {num_envs} parallel environments.")
 
         #   
-        envs = SubprocVecEnv([make_env for _ in range(num_envs)])
+        #   
+        from functools import partial
+        envs = SubprocVecEnv([partial(make_env, config=config) for _ in range(num_envs)])
         
         #
-        state_dim = 3612 # Vision (60x60=3600) + State (12)
+        # state_dim = 3612 # Vision (60x60=3600) + State (12)
+        #
+        ### Calculate state dim dynamically. ###
+        #
+        view_range_grid = int(config.simulation.robot_view_range / config.simulation.env_precision)
+        vision_width = 2 * view_range_grid
+        vision_height = 2 * view_range_grid
+        vision_size = vision_width * vision_height
+        state_dim = vision_size + 12
+        #
         action_dim = 4
         
         #
@@ -2637,7 +2827,8 @@ class Main:
                 #
                 ### Step. ###
                 #
-                next_state, reward, done, _ = envs.step(action)
+                next_state, reward, terminated, truncated, _ = envs.step(action)
+                done = np.logical_or(terminated, truncated)
                 
                 #
                 ### Save to memory. ###
@@ -2725,16 +2916,18 @@ class Main:
                 
     #
     @staticmethod
-    def play(model_path="ppo_robot_corridor.pth"):
+    def play(config: SimConfig = SimConfig(), model_path: Optional[str] = None):
 
         #
-        print(f"Playing with model: {model_path}")
+        path = model_path if model_path else config.training.model_path
+        print(f"Playing with model: {path}")
         
         #
         ### Setup scene. ###
         #
+        #
         root_scene = RootWorldScene()
-        root_scene.construct_scene(floor_type="standard", robot_height=1.0)
+        root_scene.construct_scene(config=config, floor_type="standard", robot_height=1.0)
         
         #
         physics = Physics(root_scene.mujoco_model, root_scene.mujoco_data)
@@ -2745,7 +2938,18 @@ class Main:
         #
         ### Setup Agent. ###
         #
-        state_dim = 3612
+        ### Setup Agent. ###
+        #
+        # state_dim = 3612
+        #
+        ### Calculate state dim dynamically. ###
+        #
+        view_range_grid = int(config.simulation.robot_view_range / config.simulation.env_precision)
+        vision_width = 2 * view_range_grid
+        vision_height = 2 * view_range_grid
+        vision_size = vision_width * vision_height
+        state_dim = vision_size + 12
+        #
         action_dim = 4
         agent = PPOAgent(state_dim, action_dim)
         
@@ -2754,7 +2958,7 @@ class Main:
             #
             ### Load model to cpu first then move to device. ###
             #
-            agent.policy.load_state_dict(torch.load(model_path, map_location=agent.device))
+            agent.policy.load_state_dict(torch.load(path, map_location=agent.device))
             #
             ### Set to eval mode. ###
             #
@@ -2774,7 +2978,21 @@ class Main:
         collision_system = EfficientCollisionSystemBetweenEnvAndAgent(
             environment_obstacles=root_scene.environment_rects,
             env_bounds=root_scene.env_bounds,
-            env_precision=0.1
+            env_precision=config.simulation.env_precision
+        )
+        
+        #
+        ### Calculate observation space size. ###
+        #
+        view_range_grid = int(config.simulation.robot_view_range / config.simulation.env_precision)
+        vision_width = 2 * view_range_grid
+        vision_height = 2 * view_range_grid
+        vision_size = vision_width * vision_height
+        state_dim = vision_size + 12 # 12 for state vector
+        
+        #
+        observation_space = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(state_dim,), dtype=np.float32
         )
         
         #
@@ -2791,7 +3009,7 @@ class Main:
             acc = Vec3(root_scene.mujoco_data.cacc[robot_id][0], root_scene.mujoco_data.cacc[robot_id][1], root_scene.mujoco_data.cacc[robot_id][2])
 
             #
-            return collision_system.get_robot_vision_and_state(pos, rot, vel, acc, robot_view_range=3.0)
+            return collision_system.get_robot_vision_and_state(pos, rot, vel, acc, robot_view_range=config.simulation.robot_view_range)
 
         #
         ### Launch viewer. ###
@@ -2860,8 +3078,14 @@ if __name__ == "__main__":
     parser.add_argument('--episodes', type=int, default=1000, help="Number of episodes/updates to train")
     parser.add_argument('--update_timestep', type=int, default=4000, help="Timesteps per update")
     parser.add_argument('--load_weights_from', type=str, default=None, help="Path to load initial weights from")
+    parser.add_argument('--config', type=str, default="config.yaml", help="Path to configuration file")
     #
     args: argparse.Namespace = parser.parse_args()
+
+    #
+    ### Load config. ###
+    #
+    config = SimConfig.load(args.config)
 
     #
     if args.train:
@@ -2876,12 +3100,14 @@ if __name__ == "__main__":
             pass
         
         #
-        Main.train(max_episodes=args.episodes, update_timestep=args.update_timestep, model_path=args.model_path, load_weights_from=args.load_weights_from)
+        Main.train(
+            config=config
+        )
 
     #
     elif args.play:
         #
-        Main.play(model_path=args.model_path)
+        Main.play(config=config, model_path=args.model_path)
     #
     elif args.render_video:
         #
@@ -2889,4 +3115,4 @@ if __name__ == "__main__":
     #
     else:
         #
-        Main.main(render_mode=args.render_mode)
+        Main.main(config=config, render_mode=args.render_mode)
