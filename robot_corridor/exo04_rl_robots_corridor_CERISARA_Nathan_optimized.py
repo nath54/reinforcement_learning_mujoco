@@ -2023,7 +2023,7 @@ class ActorCritic(nn.Module):
         raise NotImplementedError
     
     #
-    def act(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def act(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
 
         #
         action_mean: torch.Tensor = self.actor(state)
@@ -2055,7 +2055,7 @@ class ActorCritic(nn.Module):
         return action.detach(), action_logprob.detach()
     
     #
-    def evaluate(self, state: torch.Tensor, action: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def evaluate(self, state: torch.Tensor, action: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
         #
         action_mean: torch.Tensor = self.actor(state)
@@ -2113,7 +2113,7 @@ class PPOAgent:
         self.MseLoss: nn.MSELoss = nn.MSELoss()
         
     #
-    def select_action(self, state: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def select_action(self, state: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
         #
         with torch.no_grad():
