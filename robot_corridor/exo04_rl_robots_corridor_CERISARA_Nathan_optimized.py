@@ -39,6 +39,8 @@ from torch.distributions import Normal
 import multiprocessing as mp
 from multiprocessing import Process, Pipe
 
+
+
 def worker(remote, parent_remote, env_fn_wrapper):
     parent_remote.close()
     try:
@@ -1220,19 +1222,23 @@ class RootWorldScene:
         #
         ### Build combined model with enhanced visuals and physics. ###
         #
-        #
         corridor_components = self.corridor.generate_corridor(**GENERATE_CORRIDOR_PARAM)
         
-        # Store rects
+        #
+        ### Store rects. ##
+        ##
         if 'environment_rects' in corridor_components:
+            #
             self.environment_rects = cast(list[Rect2d], corridor_components['environment_rects'])
-            
-        # Define bounds based on corridor length
-        # Assuming corridor starts at 0 and goes to length
-        # Width is approx 3.0 * 2 (walls)
-        # Let's use a safe large bound
-        self.env_bounds = Rect2d(Point2d(-10, -10), Point2d(110, 10))
+  
+        #
+        ### Large bounds for the scene. ###
+        #
+        bounds_margin: int = 100
+        #
+        self.env_bounds = Rect2d(Point2d(-bounds_margin, -bounds_margin), Point2d(bounds_margin, bounds_margin))
         
+        #
         self.mujoco_model = self.build_combined_model(
             robot_components=self.robot.extract_robot_from_xml(),
             corridor_components=corridor_components,
@@ -1779,132 +1785,210 @@ class State:
 
 #
 class CorridorEnv:
-    def __init__(self, render_mode: bool = False):
+
+    #
+    def __init__(self, render_mode: bool = False) -> None:
+
+        #
         self.render_mode = render_mode
         self.root_scene = RootWorldScene()
         self.root_scene.construct_scene(floor_type="standard", robot_height=1.0)
         
+        #
         self.model = self.root_scene.mujoco_model
         self.data = self.root_scene.mujoco_data
         
+        #
         self.physics = Physics(self.model, self.data)
         
-        # Initialize collision/vision system
+        #
+        ### Initialize collision/vision system. ###
+        #
         self.collision_system = EfficientCollisionSystemBetweenEnvAndAgent(
             environment_obstacles=self.root_scene.environment_rects,
             env_bounds=self.root_scene.env_bounds,
             env_precision=0.1
         )
 
+    #
     def set_collision_system(self, collision_system: EfficientCollisionSystemBetweenEnvAndAgent):
+        #
         self.collision_system = collision_system
 
+    #
     def reset(self):
+
+        #
         mujoco.mj_resetData(self.model, self.data)
+        #
         self.physics.data_scene.qvel[:] = 0
         self.physics.data_scene.qacc[:] = 0
         self.physics.robot_wheels_speed[:] = 0
         
-        # Set robot to start position
+        #
+        ### Set robot to start position. ###
+        #
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
+        #
         if robot_id != -1:
-             # Lift it up a bit to avoid stuck in floor
+            #
+            ### Lift it up a bit to avoid stuck in floor. ###
+            #
             self.data.xpos[robot_id][2] = 0.2
             
-        # Initial observation
+        #
+        ### Initial observation. ###
+        #
         return self.get_observation()
 
+    #
     def step(self, action):
-        # Action is 4 continuous values for wheel speeds
-        # Clip action to reasonable range
+
+        #
+        ### Action is 4 continuous values for wheel speeds ###
+        ### Clip action to reasonable range ###
+        #
         action = np.clip(action, -1.0, 1.0)
         
-        # Map action to wheel speeds (e.g. max speed 200)
+        #
+        ### Map action to wheel speeds (e.g. max speed 200). ###
+        #
         max_speed = 200.0
         target_speeds = action * max_speed
         
-        # Apply to physics
+        #
+        ### Apply to physics. ###
+        #
         self.physics.robot_wheels_speed[:] = target_speeds
         
-        # Step physics
+        #
+        ### Step physics. ###
+        #
         self.physics.apply_additionnal_physics()
         mujoco.mj_step(self.model, self.data)
         
-        # Observation
+        #
+        ### Observation. ##
+        ##
         obs = self.get_observation()
         
-        # Reward
-        # 1. Progress reward (Continuous)
-        # Use velocity in X direction for smoother continuous reward
+        #
+        ### Reward ###
+        ### 1. Progress reward (Continuous) ###
+        ### Use velocity in X direction for smoother continuous reward ###
+        #
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
         x_vel = self.data.cvel[robot_id][0]
         y_pos = self.data.xpos[robot_id][1]
         
-        # Reward is proportional to forward velocity
-        # Increased weight for x_vel from 1.0 to 2.0 to incentivize speed
+        #
+        ### Reward is proportional to forward velocity ###
+        ### Increased weight for x_vel from 1.0 to 2.0 to incentivize speed ###
+        #
         reward = x_vel * 2.0
         
-        # 2. Survival reward (optional)
-        # Increased to encourage staying alive longer
-        reward += 0.1
+        #
+        ### 2. Survival reward (optional) ###
+        ### Increased to encourage staying alive longer ###
+        #
+        # reward += 0.1
 
-        # 3. Center corridor reward
-        # Penalize for deviating from y=0
-        # Reduced weight from 0.1 to 0.05 per user plan to avoid suicidal behavior
+        #
+        ### 3. Center corridor reward ###
+        ### Penalize for deviating from y=0 ###
+        ### Reduced weight from 0.1 to 0.05 per user plan to avoid suicidal behavior ###
+        #
         reward -= 0.05 * abs(y_pos)
         
-        # Done condition
+        #
+        ### Done condition. ###
+        #
         done = False
         
-        # Bounded environment checks (User requested margins: x < -100, |y| > 40)
-        # If driving backwards too far
+        #
+        ### Bounded environment checks (User requested margins: x < -100, |y| > 40). ###
+        ### If driving backwards too far. ###
+        #
         if self.data.xpos[robot_id][0] < -100.0:
+            #
             done = True
-            
-        # If wandering off sideways too far
+        
+        #
+        ### If wandering off sideways too far. ###
+        #
         if abs(self.data.xpos[robot_id][1]) > 40.0:
+            #
             done = True
             
-        # If fell off (z check)
+        #
+        ### If fell off (z check). ###
+        #
         if self.data.xpos[robot_id][2] < -5.0:
+            #
             done = True
-            # User requested NO penalty for falling off
-            
-        # If reached end (e.g. 100m)
+        
+        #
+        ### If reached end (e.g. 100m). ###
+        #
         if self.data.xpos[robot_id][0] > 100.0:
+            #
             done = True
+            #
             reward += 100.0
             
+        #
         return obs, reward, done, {}
 
+    #
     def get_observation(self):
+
+        #
         if self.collision_system is None:
-            return np.zeros(48) # Fallback
-            
+            #
+            ### Fallback. ###
+            #
+            return np.zeros(48)
+        
+        #
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
+        #
         pos = Vec3(self.data.xpos[robot_id][0], self.data.xpos[robot_id][1], self.data.xpos[robot_id][2])
+
         # Rotation is quaternion, convert to euler or just use forward vector?
         # The `get_robot_vision_and_state` expects Vec3 for rot.
         # Let's just pass zero for now or convert if needed. 
         # Actually `EfficientCollisionSystem` expects `Vec3`.
         # Let's use xquat to get orientation.
+
+        #
         rot = Vec3(0,0,0) # Placeholder
         
+        #
         vel = Vec3(self.data.cvel[robot_id][0], self.data.cvel[robot_id][1], self.data.cvel[robot_id][2])
         acc = Vec3(self.data.cacc[robot_id][0], self.data.cacc[robot_id][1], self.data.cacc[robot_id][2])
         
+        #
         return self.collision_system.get_robot_vision_and_state(
             pos, rot, vel, acc, robot_view_range=3.0
         )
 
+
 #
 class ActorCritic(nn.Module):
+
+    #
     def __init__(self, state_dim, action_dim, action_std_init=0.6):
+
+        #
         super(ActorCritic, self).__init__()
+
+        #
         self.action_dim = action_dim
         self.action_var = torch.full((action_dim,), action_std_init * action_std_init)
         
-        # Actor
+        #
+        ### Actor. ###
+        #
         self.actor = nn.Sequential(
             nn.Linear(state_dim, 64),
             nn.Tanh(),
@@ -1918,7 +2002,9 @@ class ActorCritic(nn.Module):
             nn.Tanh() # Output -1 to 1
         )
         
-        # Critic
+        #
+        ### Critic. ###
+        #
         self.critic = nn.Sequential(
             nn.Linear(state_dim, 64),
             nn.Tanh(),
@@ -1931,11 +2017,18 @@ class ActorCritic(nn.Module):
             nn.Linear(64, 1)
         )
         
+    #
     def forward(self):
+        #
         raise NotImplementedError
     
+    #
     def act(self, state):
+
+        #
         action_mean = self.actor(state)
+
+        #
         # cov_mat = torch.diag(self.action_var).to(state.device)
         # dist = Normal(action_mean, self.action_var.to(state.device)) # Simplified std
         
@@ -1950,122 +2043,188 @@ class ActorCritic(nn.Module):
         
         # Simplified: Use fixed std that decays or is just larger to start with.
         # Let's use the one passed in init (0.6)
+        #
         action_std = torch.sqrt(self.action_var).to(state.device)
         dist = Normal(action_mean, action_std)
         
+        #
         action = dist.sample()
         action_logprob = dist.log_prob(action).sum(axis=-1)
         
+        #
         return action.detach(), action_logprob.detach()
     
+    #
     def evaluate(self, state, action):
+
+        #
         action_mean = self.actor(state)
-        
-        # Use same std as act
+
+        #        
+        ### Use same std as act. ###
+        #
         action_std = torch.sqrt(self.action_var).to(state.device)
         dist = Normal(action_mean, action_std)
         
+        #
         action_logprobs = dist.log_prob(action).sum(axis=-1)
         dist_entropy = dist.entropy().sum(axis=-1)
         state_values = self.critic(state)
         
+        #
         return action_logprobs, state_values, dist_entropy
+
 
 #
 class PPOAgent:
-    def __init__(self, state_dim, action_dim, lr=0.002, gamma=0.99, K_epochs=4, eps_clip=0.2):
+
+    #
+    def __init__(self, state_dim, action_dim, lr=0.02, gamma=0.99, K_epochs=4, eps_clip=0.2):
+
+        #
         self.gamma = gamma
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
         
-        # Detect device
+        #
+        ### Detect device. ###
+        #
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        #
         print(f"PPOAgent using device: {self.device}")
         
+        #
         self.action_dim = action_dim
         self.policy = ActorCritic(state_dim, action_dim).float().to(self.device)
         self.optimizer = optim.Adam(self.policy.parameters(), lr=lr)
         self.policy_old = ActorCritic(state_dim, action_dim).float().to(self.device)
         self.policy_old.load_state_dict(self.policy.state_dict())
         
+        #
         self.MseLoss = nn.MSELoss()
         
+    #
     def select_action(self, state):
+
+        #
         with torch.no_grad():
-            state = torch.FloatTensor(state).to(self.device)
+            #
+            state: torch.Tensor = torch.FloatTensor(state).to(self.device)
             action, action_logprob = self.policy_old.act(state)
+
+        #
         return action.cpu().numpy(), action_logprob.cpu().numpy()
         
+    #
     def update(self, memory):
-        # Convert list to tensor
+
+        #
+        ### Convert list to tensor. ###
+        #
         rewards = []
         discounted_reward = 0
         
         # memory.rewards: list of (num_envs,)
         # memory.is_terminals: list of (num_envs,)
         
-        # Initialize discounted_reward as zeros with shape of a single reward entry
+        #
+        ### Initialize discounted_reward as zeros with shape of a single reward entry. ###
+        #
         if len(memory.rewards) > 0:
+            #
             discounted_reward = np.zeros_like(memory.rewards[0])
             
+        #
         for reward, is_terminal in zip(reversed(memory.rewards), reversed(memory.is_terminals)):
-            # is_terminal is boolean array, convert to float for masking
+
+            #
+            ### is_terminal is boolean array, convert to float for masking. ###
+            #
             mask = 1.0 - is_terminal.astype(np.float32)
             discounted_reward = reward + (self.gamma * discounted_reward * mask)
             rewards.insert(0, discounted_reward)
             
-        # Flatten the batch and time dimensions
+        #
+        ### Flatten the batch and time dimensions. ###
+        #
         rewards = torch.tensor(np.array(rewards), dtype=torch.float32).to(self.device)
         rewards = rewards.view(-1)
         rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
         
-        # Stack and move to device, then flatten
-        # states: list of (num_envs, state_dim) -> (T, num_envs, state_dim) -> (T*num_envs, state_dim)
+        #
+        ### Stack and move to device, then flatten ###
+        ### states: list of (num_envs, state_dim) -> (T, num_envs, state_dim) -> (T*num_envs, state_dim) ###
+        #
         old_states = torch.stack(memory.states).to(self.device).detach().view(-1, self.policy.actor[0].in_features)
         old_actions = torch.stack(memory.actions).to(self.device).detach().view(-1, self.action_dim)
         
-        # logprobs: list of (num_envs,) -> (T, num_envs) -> (T*num_envs)
-        # They were stored as numpy arrays, so convert to tensor first
+        #
+        ### logprobs: list of (num_envs,) -> (T, num_envs) -> (T*num_envs) ###
+        ### They were stored as numpy arrays, so convert to tensor first ###
+        #
         old_logprobs = torch.tensor(np.array(memory.logprobs), dtype=torch.float32).to(self.device).view(-1)
         
-        # Optimize policy for K epochs
+        #
+        ### Optimize policy for K epochs. ###
+        #
         for _ in range(self.K_epochs):
+            #
             logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
             
+            #
             state_values = torch.squeeze(state_values)
             
+            #
             ratios = torch.exp(logprobs - old_logprobs)
             
+            #
             advantages = rewards - state_values.detach()
             
+            #
             surr1 = ratios * advantages
             surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
             
+            #
             loss = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, rewards) - 0.01*dist_entropy
             
+            #
             self.optimizer.zero_grad()
             loss.mean().backward()
+            #
             self.optimizer.step()
             
+        #
         self.policy_old.load_state_dict(self.policy.state_dict())
 
+
+#
 class Memory:
+
+    #
     def __init__(self):
+
+        #
         self.actions = []
         self.states = []
         self.logprobs = []
         self.rewards = []
         self.is_terminals = []
     
+    #
     def clear_memory(self):
+
+        #
         del self.actions[:]
         del self.states[:]
         del self.logprobs[:]
         del self.rewards[:]
         del self.is_terminals[:]
 
+#
 def make_env():
+    #
     return CorridorEnv()
+
 
 #
 class Main:
@@ -2343,173 +2502,288 @@ class Main:
 
     #
     @staticmethod
-    def train(max_episodes=1000, max_timesteps=2000, update_timestep=4000, lr=0.002, gamma=0.99, K_epochs=4, eps_clip=0.2, model_path="ppo_robot_corridor.pth", load_weights_from=None):
+    def train(
+        max_episodes=1000,
+        max_timesteps=2000,
+        update_timestep=4000,
+        lr=0.002,
+        gamma=0.99,
+        K_epochs=4,
+        eps_clip=0.2,
+        model_path="ppo_robot_corridor.pth",
+        load_weights_from=None
+    ) -> None:
+
+        #
         print("Starting training...")
         
-        # Determine number of environments
-        num_envs = min(8, mp.cpu_count())
+        #
+        ### Determine number of environments. ###
+        #
+        num_envs: int = min(8, mp.cpu_count())
+        #
         print(f"Using {num_envs} parallel environments.")
-            
+
+        #   
         envs = SubprocVecEnv([make_env for _ in range(num_envs)])
         
+        #
         state_dim = 3612 # Vision (60x60=3600) + State (12)
         action_dim = 4
         
+        #
         agent = PPOAgent(state_dim, action_dim, lr, gamma, K_epochs, eps_clip)
         memory = Memory()
         
+        #
         print_running_reward = 0
         print_running_episodes = 0
         
+        #
         time_step = 0
         i_episode = 0
         
-        # Initial reset
+        #
+        ### Initial reset. ###
+        #
         state = envs.reset()
 
-        # Load weights if requested
+        #
+        ### Load weights if requested. ###
+        #
         if load_weights_from and os.path.exists(load_weights_from):
+
+            #
             print(f"Loading initial weights from {load_weights_from}...")
+
+            #
             try:
+
+                #
                 agent.policy.load_state_dict(torch.load(load_weights_from, map_location=agent.device))
+                #
                 agent.policy_old.load_state_dict(agent.policy.state_dict())
+                #
                 print("Weights loaded successfully.")
+
+            #
             except Exception as e:
+                #
                 print(f"Error loading weights: {e}")
 
-        # Initialize best reward tracking
+        #
+        ### Initialize best reward tracking. ###
+        #
         best_reward = -float('inf')
         best_model_path = model_path.replace(".pth", "_best.pth")
         best_model_info_path = model_path.replace(".pth", "_best.json")
         
-        # Try to load previous best score if exists
+        #
+        ### Try to load previous best score if exists. ###
+        #
         if os.path.exists(best_model_info_path):
+
+            #
             try:
+
+                #
                 with open(best_model_info_path, 'r') as f:
+                    #
                     info = json.load(f)
                     best_reward = info.get('best_reward', -float('inf'))
+
+                #
                 print(f"Resuming with previous best reward record: {best_reward}")
+
+            #
             except Exception as e:
+                #
                 print(f"Could not load previous best info: {e}")
         
+        #
         while i_episode < max_episodes:
+
+            #   
+            ### Run for update_timestep steps (total across all envs) ###
+            ### We want to collect update_timestep transitions. ###
+            ### Each step collects num_envs transitions. ###
+            ### So we run for update_timestep // num_envs iterations. ###
+            #
+            steps_per_update: int = update_timestep // num_envs
             
-            # Run for update_timestep steps (total across all envs)
-            # We want to collect update_timestep transitions.
-            # Each step collects num_envs transitions.
-            # So we run for update_timestep // num_envs iterations.
-            
-            steps_per_update = update_timestep // num_envs
-            
+            #
             for t in range(steps_per_update):
-                
-                # Select action
+
+                #   
+                ### Select action. ###
+                #
                 action, action_logprob = agent.select_action(state)
                 
-                # Step
+                #
+                ### Step. ###
+                #
                 next_state, reward, done, _ = envs.step(action)
                 
-                # Save to memory
+                #
+                ### Save to memory. ###
+                #
                 memory.states.append(torch.FloatTensor(state))
                 memory.actions.append(torch.FloatTensor(action))
-                memory.logprobs.append(action_logprob) # Already numpy array
+                memory.logprobs.append(action_logprob)
                 memory.rewards.append(reward)
                 memory.is_terminals.append(done)
                 
+                #
                 state = next_state
                 
+                #
                 time_step += num_envs
                 
-                # Track rewards (approximate for printing)
-                # We just sum up rewards from all envs
+                #
+                ### Track rewards (approximate for printing). ###
+                #
                 print_running_reward += np.sum(reward)
-                # We count "episodes" as number of done flags
+                #
+                ### We count "episodes" as number of done flags. ###
+                #
                 print_running_episodes += np.sum(done)
             
-            # Update PPO
+            #
+            ### Update PPO. ###
+            #
             agent.update(memory)
             memory.clear_memory()
             time_step = 0
             
-            i_episode += 1 # This is now "update iterations" rather than episodes
+            #
+            i_episode += 1
             
+            #
             if i_episode % 10 == 0:
-                # Avoid division by zero
+
+                #
+                ### Avoid division by zero. ###
+                #
                 if print_running_episodes == 0:
+                    #
                     print_running_episodes = 1
                 
-                # Also calculate avg reward per step to detect if episodes are just getting very long
-                # We know exactly how many steps passed: `steps_per_update * 10`
+                #
+                ### Also calculate avg reward per step to detect if episodes are just getting very long ###
+                ### We know exactly how many steps passed: `steps_per_update * 10` ###
+                #
                 total_steps_in_log_interval = steps_per_update * 10 
                 avg_reward = print_running_reward / print_running_episodes
                 avg_reward_per_step = print_running_reward / total_steps_in_log_interval
                 
+                #
                 print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.2f} \t Avg Reward/Step: {avg_reward_per_step:.4f} \t Total Episodes: {print_running_episodes}")
+                #
                 print_running_reward = 0
                 print_running_episodes = 0
                 
-                # Save latest model
+                #
+                ### Save latest model. ###
+                #
                 torch.save(agent.policy.state_dict(), model_path)
                 
-                # Check for best model
+                #
+                ### Check for best model. ###
+                #
                 if avg_reward > best_reward:
+                    #
                     best_reward = avg_reward
+                    #
                     print(f"New best reward: {best_reward:.2f}! Saving best model...")
+                    #
                     torch.save(agent.policy.state_dict(), best_model_path)
                     
-                    # Save metadata
+                    #
+                    ### Save metadata. ###
+                    #
                     with open(best_model_info_path, 'w') as f:
+                        #
                         json.dump({'best_reward': best_reward, 'episode': i_episode}, f)
         
+        #
         envs.close()
                 
     #
     @staticmethod
     def play(model_path="ppo_robot_corridor.pth"):
+
+        #
         print(f"Playing with model: {model_path}")
         
-        # Setup scene
+        #
+        ### Setup scene. ###
+        #
         root_scene = RootWorldScene()
         root_scene.construct_scene(floor_type="standard", robot_height=1.0)
         
+        #
         physics = Physics(root_scene.mujoco_model, root_scene.mujoco_data)
         camera = Camera()
         controls = Controls(physics, camera, render_mode=False)
         robot_track = TrackRobot(root_scene.mujoco_data)
         
-        # Setup Agent
+        #
+        ### Setup Agent. ###
+        #
         state_dim = 3612
         action_dim = 4
         agent = PPOAgent(state_dim, action_dim)
         
+        #
         try:
-            # Load model to cpu first then move to device
+            #
+            ### Load model to cpu first then move to device. ###
+            #
             agent.policy.load_state_dict(torch.load(model_path, map_location=agent.device))
-            agent.policy.eval() # Set to eval mode
+            #
+            ### Set to eval mode. ###
+            #
+            agent.policy.eval()
+            #
             print("Model loaded successfully.")
+        #
         except Exception as e:
+            #
             print(f"Error loading model: {e}")
+            #
             return
 
-        # Setup Collision System for Vision
+        #
+        ### Setup Collision System for Vision. ###
+        #
         collision_system = EfficientCollisionSystemBetweenEnvAndAgent(
             environment_obstacles=root_scene.environment_rects,
             env_bounds=root_scene.env_bounds,
             env_precision=0.1
         )
         
-        # Helper to get observation
+        #
+        ### Helper to get observation. ###
+        #
         def get_observation():
+
+            #
             robot_id = mujoco.mj_name2id(root_scene.mujoco_model, mujoco.mjtObj.mjOBJ_BODY, "robot")
+            #
             pos = Vec3(root_scene.mujoco_data.xpos[robot_id][0], root_scene.mujoco_data.xpos[robot_id][1], root_scene.mujoco_data.xpos[robot_id][2])
             rot = Vec3(0,0,0)
             vel = Vec3(root_scene.mujoco_data.cvel[robot_id][0], root_scene.mujoco_data.cvel[robot_id][1], root_scene.mujoco_data.cvel[robot_id][2])
             acc = Vec3(root_scene.mujoco_data.cacc[robot_id][0], root_scene.mujoco_data.cacc[robot_id][1], root_scene.mujoco_data.cacc[robot_id][2])
+
+            #
             return collision_system.get_robot_vision_and_state(pos, rot, vel, acc, robot_view_range=3.0)
 
-        # Launch viewer
+        #
+        ### Launch viewer. ###
+        #
         with viewer.launch_passive(root_scene.mujoco_model, root_scene.mujoco_data, key_callback=controls.key_callback) as viewer_instance:
-            
+
+            #   
             state_obj = State(
                 mj_model=root_scene.mujoco_model,
                 mj_data=root_scene.mujoco_data,
@@ -2520,31 +2794,46 @@ class Main:
                 robot_track=robot_track
             )
             
-            # Initial reset
-            # Lift robot
+            #
+            ### Initial reset. ###
+            #
+
+            ### Lift robot. ###
+            #
             robot_id = mujoco.mj_name2id(root_scene.mujoco_model, mujoco.mjtObj.mjOBJ_BODY, "robot")
+            #
             root_scene.mujoco_data.xpos[robot_id][2] = 0.2
             
+            #
             while viewer_instance.is_running() and not state_obj.controls.quit_requested:
-                
-                # Get observation
+
+                #   
+                ### Get observation. ###
+                #
                 obs = get_observation()
                 
-                # Get action from agent
+                #
+                ### Get action from agent. ###
+                #
                 action, _ = agent.select_action(obs)
                 
-                # Apply action
+                #
+                ### Apply action. ###
+                #
                 action = np.clip(action, -1.0, 1.0)
                 max_speed = 200.0
                 target_speeds = action * max_speed
                 physics.robot_wheels_speed[:] = target_speeds
                 
-                # Step
+                #
+                ### Step. ###
+                #
                 state_obj = Main.state_step(state_obj)
 
 
 #
 if __name__ == "__main__":
+
     #
     parser: argparse.ArgumentParser = argparse.ArgumentParser()
     #
@@ -2561,17 +2850,24 @@ if __name__ == "__main__":
 
     #
     if args.train:
+
+        #
         try:
+            #
             mp.set_start_method('spawn', force=True)
+        #
         except RuntimeError:
+            #
             pass
         
-        # Allow user to override max_episodes via another arg or just reuse one
-        # To be clean, we should have added arguments to argparse.
-        # Re-parsing here or just calling with args if we added them.
+        #
         Main.train(max_episodes=args.episodes, update_timestep=args.update_timestep, model_path=args.model_path, load_weights_from=args.load_weights_from)
+
+    #
     elif args.play:
+        #
         Main.play(model_path=args.model_path)
+    #
     elif args.render_video:
         #
         Main.main_video_render()
