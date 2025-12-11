@@ -2010,13 +2010,17 @@ class CorridorEnv:
         #
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
         x_vel = self.data.cvel[robot_id][0]
+        x_pos = self.data.xpos[robot_id][0]
         y_pos = self.data.xpos[robot_id][1]
         
         #
         ### Reward is proportional to forward velocity ###
         ### Increased weight for x_vel from 1.0 to 2.0 to incentivize speed ###
         #
-        reward = x_vel * 2.0
+        # reward = x_vel * 0.001
+
+        # Better reward for reaching far into the X axis
+        reward += x_pos
         
         #
         ### 2. Survival reward (optional) ###
@@ -2029,7 +2033,7 @@ class CorridorEnv:
         ### Penalize for deviating from y=0 ###
         ### Reduced weight from 0.1 to 0.05 per user plan to avoid suicidal behavior ###
         #
-        reward -= 0.05 * abs(y_pos)
+        # reward -= 0.05 * abs(y_pos)
         
         #
         ### Done condition. ###
@@ -2040,16 +2044,16 @@ class CorridorEnv:
         ### Bounded environment checks (User requested margins: x < -100, |y| > 40). ###
         ### If driving backwards too far. ###
         #
-        if self.data.xpos[robot_id][0] < -100.0:
-            #
-            done = True
+        # if self.data.xpos[robot_id][0] < -100.0:
+        #     #
+        #     done = True
         
         #
         ### If wandering off sideways too far. ###
         #
-        if abs(self.data.xpos[robot_id][1]) > 40.0:
-            #
-            done = True
+        # if abs(self.data.xpos[robot_id][1]) > 40.0:
+        #     #
+        #     done = True
             
         #
         ### If fell off (z check). ###
@@ -2666,7 +2670,7 @@ class Main:
         max_episodes: int = 1000,
         max_timesteps: int = 2000,
         update_timestep: int = 4000,
-        lr: float = 0.002,
+        lr: float = 0.02,
         gamma: float = 0.99,
         K_epochs: int = 4,
         eps_clip: float = 0.2,
