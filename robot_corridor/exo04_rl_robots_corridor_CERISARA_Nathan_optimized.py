@@ -1977,19 +1977,19 @@ class CorridorEnv:
 class ActorCritic(nn.Module):
 
     #
-    def __init__(self, state_dim, action_dim, action_std_init=0.6):
+    def __init__(self, state_dim: int, action_dim: int, action_std_init: float = 0.6) -> None:
 
         #
         super(ActorCritic, self).__init__()
 
         #
-        self.action_dim = action_dim
-        self.action_var = torch.full((action_dim,), action_std_init * action_std_init)
+        self.action_dim: int = action_dim
+        self.action_var: torch.Tensor = torch.full((action_dim,), action_std_init * action_std_init)
         
         #
         ### Actor. ###
         #
-        self.actor = nn.Sequential(
+        self.actor: nn.Sequential = nn.Sequential(
             nn.Linear(state_dim, 64),
             nn.Tanh(),
             nn.Linear(64, 128),
@@ -2005,7 +2005,7 @@ class ActorCritic(nn.Module):
         #
         ### Critic. ###
         #
-        self.critic = nn.Sequential(
+        self.critic: nn.Sequential = nn.Sequential(
             nn.Linear(state_dim, 64),
             nn.Tanh(),
             nn.Linear(64, 128),
@@ -2018,15 +2018,15 @@ class ActorCritic(nn.Module):
         )
         
     #
-    def forward(self):
+    def forward(self) -> None:
         #
         raise NotImplementedError
     
     #
-    def act(self, state):
+    def act(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
 
         #
-        action_mean = self.actor(state)
+        action_mean: torch.Tensor = self.actor(state)
 
         #
         # cov_mat = torch.diag(self.action_var).to(state.device)
@@ -2044,32 +2044,32 @@ class ActorCritic(nn.Module):
         # Simplified: Use fixed std that decays or is just larger to start with.
         # Let's use the one passed in init (0.6)
         #
-        action_std = torch.sqrt(self.action_var).to(state.device)
-        dist = Normal(action_mean, action_std)
+        action_std: torch.Tensor = torch.sqrt(self.action_var).to(state.device)
+        dist: Normal = Normal(action_mean, action_std)
         
         #
-        action = dist.sample()
-        action_logprob = dist.log_prob(action).sum(axis=-1)
+        action: torch.Tensor = dist.sample()
+        action_logprob: torch.Tensor = dist.log_prob(action).sum(axis=-1)
         
         #
         return action.detach(), action_logprob.detach()
     
     #
-    def evaluate(self, state, action):
+    def evaluate(self, state: torch.Tensor, action: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
         #
-        action_mean = self.actor(state)
+        action_mean: torch.Tensor = self.actor(state)
 
         #        
         ### Use same std as act. ###
         #
-        action_std = torch.sqrt(self.action_var).to(state.device)
-        dist = Normal(action_mean, action_std)
+        action_std: torch.Tensor = torch.sqrt(self.action_var).to(state.device)
+        dist: Normal = Normal(action_mean, action_std)
         
         #
-        action_logprobs = dist.log_prob(action).sum(axis=-1)
-        dist_entropy = dist.entropy().sum(axis=-1)
-        state_values = self.critic(state)
+        action_logprobs: torch.Tensor = dist.log_prob(action).sum(axis=-1)
+        dist_entropy: torch.Tensor = dist.entropy().sum(axis=-1)
+        state_values: torch.Tensor = self.critic(state)
         
         #
         return action_logprobs, state_values, dist_entropy
@@ -2079,50 +2079,59 @@ class ActorCritic(nn.Module):
 class PPOAgent:
 
     #
-    def __init__(self, state_dim, action_dim, lr=0.02, gamma=0.99, K_epochs=4, eps_clip=0.2):
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        lr: float = 0.02,
+        gamma: float = 0.99,
+        K_epochs: int = 4,
+        eps_clip: float = 0.2
+    ) -> None:
 
         #
-        self.gamma = gamma
-        self.eps_clip = eps_clip
-        self.K_epochs = K_epochs
+        self.gamma: float = gamma
+        self.eps_clip: float = eps_clip
+        self.K_epochs: int = K_epochs
         
         #
         ### Detect device. ###
         #
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         #
         print(f"PPOAgent using device: {self.device}")
         
         #
-        self.action_dim = action_dim
-        self.policy = ActorCritic(state_dim, action_dim).float().to(self.device)
-        self.optimizer = optim.Adam(self.policy.parameters(), lr=lr)
-        self.policy_old = ActorCritic(state_dim, action_dim).float().to(self.device)
+        self.action_dim: int = action_dim
+        #
+        self.policy: 'ActorCritic' = cast('ActorCritic', ActorCritic(state_dim, action_dim).float().to(self.device))
+        self.optimizer: optim.Adam = optim.Adam(self.policy.parameters(), lr=lr)
+        self.policy_old: 'ActorCritic' = cast('ActorCritic', ActorCritic(state_dim, action_dim).float().to(self.device))
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         #
-        self.MseLoss = nn.MSELoss()
+        self.MseLoss: nn.MSELoss = nn.MSELoss()
         
     #
-    def select_action(self, state):
+    def select_action(self, state: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
         #
         with torch.no_grad():
             #
-            state: torch.Tensor = torch.FloatTensor(state).to(self.device)
-            action, action_logprob = self.policy_old.act(state)
+            state_tensor: torch.Tensor = torch.FloatTensor(state).to(self.device)
+            action_tensor, action_logprob_tensor = self.policy_old.act(state_tensor)
 
         #
-        return action.cpu().numpy(), action_logprob.cpu().numpy()
+        return action_tensor.cpu().numpy(), action_logprob_tensor.cpu().numpy()
         
     #
-    def update(self, memory):
+    def update(self, memory: 'Memory') -> None:
 
         #
         ### Convert list to tensor. ###
         #
-        rewards = []
-        discounted_reward = 0
+        rewards: List[np.ndarray] = []
+        discounted_reward: Union[int, np.ndarray] = 0
         
         # memory.rewards: list of (num_envs,)
         # memory.is_terminals: list of (num_envs,)
@@ -2140,34 +2149,39 @@ class PPOAgent:
             #
             ### is_terminal is boolean array, convert to float for masking. ###
             #
-            mask = 1.0 - is_terminal.astype(np.float32)
-            discounted_reward = reward + (self.gamma * discounted_reward * mask)
+            mask: np.ndarray = 1.0 - is_terminal.astype(np.float32)
+            discounted_reward: np.ndarray = reward + (self.gamma * discounted_reward * mask)
             rewards.insert(0, discounted_reward)
             
         #
         ### Flatten the batch and time dimensions. ###
         #
-        rewards = torch.tensor(np.array(rewards), dtype=torch.float32).to(self.device)
-        rewards = rewards.view(-1)
-        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
+        rewards_tensor: torch.Tensor = torch.tensor(np.array(rewards), dtype=torch.float32).to(self.device)
+        rewards_tensor = rewards_tensor.view(-1)
+        rewards_tensor = (rewards_tensor - rewards_tensor.mean()) / (rewards_tensor.std() + 1e-7)
         
         #
         ### Stack and move to device, then flatten ###
         ### states: list of (num_envs, state_dim) -> (T, num_envs, state_dim) -> (T*num_envs, state_dim) ###
         #
-        old_states = torch.stack(memory.states).to(self.device).detach().view(-1, self.policy.actor[0].in_features)
-        old_actions = torch.stack(memory.actions).to(self.device).detach().view(-1, self.action_dim)
+        old_states: torch.Tensor = torch.stack(memory.states).to(self.device).detach().view(-1, self.policy.actor[0].in_features)
+        old_actions: torch.Tensor = torch.stack(memory.actions).to(self.device).detach().view(-1, self.action_dim)
         
         #
         ### logprobs: list of (num_envs,) -> (T, num_envs) -> (T*num_envs) ###
         ### They were stored as numpy arrays, so convert to tensor first ###
         #
-        old_logprobs = torch.tensor(np.array(memory.logprobs), dtype=torch.float32).to(self.device).view(-1)
+        old_logprobs: torch.Tensor = torch.tensor(np.array(memory.logprobs), dtype=torch.float32).to(self.device).view(-1)
         
         #
         ### Optimize policy for K epochs. ###
         #
         for _ in range(self.K_epochs):
+
+            #
+            logprobs: torch.Tensor
+            state_values: torch.Tensor
+            dist_entropy: torch.Tensor
             #
             logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
             
@@ -2175,24 +2189,24 @@ class PPOAgent:
             state_values = torch.squeeze(state_values)
             
             #
-            ratios = torch.exp(logprobs - old_logprobs)
+            ratios: torch.Tensor = torch.exp(logprobs - old_logprobs)
             
             #
-            advantages = rewards - state_values.detach()
+            advantages: torch.Tensor = rewards_tensor - state_values.detach()
             
             #
-            surr1 = ratios * advantages
-            surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
+            surr1: torch.Tensor = ratios * advantages
+            surr2: torch.Tensor = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
             
             #
-            loss = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, rewards) - 0.01*dist_entropy
+            loss: torch.Tensor = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, rewards_tensor) - 0.01*dist_entropy
             
             #
             self.optimizer.zero_grad()
             loss.mean().backward()
             #
             self.optimizer.step()
-            
+
         #
         self.policy_old.load_state_dict(self.policy.state_dict())
 
@@ -2201,17 +2215,17 @@ class PPOAgent:
 class Memory:
 
     #
-    def __init__(self):
+    def __init__(self) -> None:
 
         #
-        self.actions = []
-        self.states = []
-        self.logprobs = []
-        self.rewards = []
-        self.is_terminals = []
+        self.actions: List[torch.Tensor] = []
+        self.states: List[torch.Tensor] = []
+        self.logprobs: List[np.ndarray] = []        # Stored as numpy arrays in PPOAgent.update
+        self.rewards: List[np.ndarray] = []         # Stored as numpy arrays in PPOAgent.update
+        self.is_terminals: List[np.ndarray] = []    # Stored as numpy arrays in PPOAgent.update
     
     #
-    def clear_memory(self):
+    def clear_memory(self) -> None:
 
         #
         del self.actions[:]
@@ -2220,10 +2234,11 @@ class Memory:
         del self.rewards[:]
         del self.is_terminals[:]
 
+
 #
-def make_env():
+def make_env() -> CorridorEnv:
     #
-    return CorridorEnv()
+    return cast(CorridorEnv, CorridorEnv())
 
 
 #
