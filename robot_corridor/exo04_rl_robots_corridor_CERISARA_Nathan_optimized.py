@@ -78,9 +78,9 @@ class SimulationConfig:
     corridor_length: float = 100.0
     corridor_width: float = 3.0
     robot_view_range: float = 3.0
-    max_steps: int = 2000
-    env_precision: float = 0.1
-    warmup_steps: int = 50
+    max_steps: int = 30000
+    env_precision: float = 0.2
+    warmup_steps: int = 100
 
 #
 @dataclass
@@ -95,19 +95,19 @@ class RewardConfig:
     #
     goal: float = 100.0
     collision: float = -0.05
-    straight_line_penalty: float = 0.5
+    straight_line_penalty: float = 0.1
     straight_line_dist: float = 40.0
-    pacer_speed: float = 0.01
+    pacer_speed: float = 0.004
 
 #
 @dataclass
 class TrainingConfig:
     #
     agent_type: str = "ppo"
-    max_episodes: int = 1000
+    max_episodes: int = 20000
     model_path: str = "ppo_robot_corridor.pth"
     load_weights_from: Optional[str] = None
-    learning_rate: float = 0.02
+    learning_rate: float = 0.0003
     gamma: float = 0.99
     k_epochs: int = 4
     eps_clip: float = 0.2
@@ -604,13 +604,21 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
         vision_matrix = np.sign(vision_matrix)
 
         #
-        ### 4. Flatten vision and concatenate with state. ###
+        ### 4. Flatten vision and concatenate with normalized state. ###
+        #
+        ### Normalize state vector for better neural network convergence. ###
         #
         state_vector: NDArray[np.float64] = np.array([
-            robot_pos.x, robot_pos.y, robot_pos.z,
-            robot_rot.x, robot_rot.y, robot_rot.z,
-            robot_speed.x, robot_speed.y, robot_speed.z,
-            previous_action[0], previous_action[1], previous_action[2], previous_action[3]
+            robot_pos.x / 100.0,      # Normalize position by corridor length
+            robot_pos.y / 10.0,       # Normalize y by corridor width
+            robot_pos.z,              # Height is already small
+            robot_rot.x,              # Rotations are already in radians [-pi, pi]
+            robot_rot.y,
+            robot_rot.z,
+            robot_speed.x / 10.0,     # Normalize velocities
+            robot_speed.y / 10.0,
+            robot_speed.z / 10.0,
+            previous_action[0], previous_action[1], previous_action[2], previous_action[3]  # Already in [-1, 1]
         ], dtype=np.float64)
 
         #
@@ -633,7 +641,7 @@ RENDER_HEIGHT: int = 1024
 GENERATE_CORRIDOR_PARAM: dict[str, Any] = {
     "corridor_length": ValType(200.0),
     "corridor_width": ValType(4.0),
-    "obstacles_mode": "sinusoidal",
+    "obstacles_mode": "none",
     "obstacles_mode_param": {
         "obstacle_sep": ValType( 10.0 ),
         "obstacle_size_x": ValType( 0.4 ),
@@ -1497,7 +1505,7 @@ class RootWorldScene:
         corridor_components = self.corridor.generate_corridor(
             corridor_length=ValType(config.simulation.corridor_length),
             corridor_width=ValType(config.simulation.corridor_width),
-            obstacles_mode="sinusoidal",
+            obstacles_mode=GENERATE_CORRIDOR_PARAM["obstacles_mode"],
             obstacles_mode_param=GENERATE_CORRIDOR_PARAM["obstacles_mode_param"]
         )
 
@@ -2250,26 +2258,26 @@ class CorridorEnv(gym.Env):
         #
         ### Velocity reward ###
         #
-        reward += x_vel / 100.0
+        # reward += x_vel / 100.0
 
         #
         ### Straight line penalty. ###
         ### Penalize if staying in same Y radius for too long (> 15m). ###
         #
-        y_tolerance: float = 0.5
-        if abs(y_pos - self.straight_y) < y_tolerance:
-            #
-            dist_straight: float = x_pos - self.straight_start_x
-            #
-            if dist_straight > self.config.rewards.straight_line_dist:
-                #
-                reward -= self.config.rewards.straight_line_penalty
-        else:
-            #
-            ### Reset tracking if moved out of Y radius. ###
-            #
-            self.straight_start_x = x_pos
-            self.straight_y = y_pos
+        # y_tolerance: float = 0.5
+        # if abs(y_pos - self.straight_y) < y_tolerance:
+        #     #
+        #     dist_straight: float = x_pos - self.straight_start_x
+        #     #
+        #     if dist_straight > self.config.rewards.straight_line_dist:
+        #         #
+        #         reward -= self.config.rewards.straight_line_penalty
+        # else:
+        #     #
+        #     ### Reset tracking if moved out of Y radius. ###
+        #     #
+        #     self.straight_start_x = x_pos
+        #     self.straight_y = y_pos
 
         #
         ### Done condition. ###
@@ -2317,14 +2325,16 @@ class CorridorEnv(gym.Env):
         reward *= 0.01
 
         #
+        ### Termination bonuses (smaller to not overwhelm progress signal). ###
+        #
         if terminated:
             #
-            reward += 10
+            reward += 0.5
 
         #
         if truncated:
             #
-            reward -= 10
+            reward -= 0.5
 
         #
         return obs, reward, terminated, truncated, {}
@@ -2381,8 +2391,10 @@ class ActorCritic(nn.Module):
 
         #
         self.action_dim = action_dim
-        # Make action variance learnable
-        self.action_var = nn.Parameter(torch.full((action_dim,), action_std_init * action_std_init))
+        #
+        ### Use log_std for numerical stability (can't go negative). ###
+        #
+        self.action_log_std = nn.Parameter(torch.zeros(action_dim))
         self.vision_shape = vision_shape
         self.state_vector_dim = state_vector_dim
         self.vision_size = vision_shape[0] * vision_shape[1]
@@ -2423,15 +2435,29 @@ class ActorCritic(nn.Module):
         fusion_dim = cnn_out_size + 64
 
         #
-        ### Actor Head. ###
+        ### Actor Head (No Dropout for policy networks). ###
         #
         self.actor = nn.Sequential(
             nn.Linear(fusion_dim, 256),
-            nn.Tanh(),
-            nn.Linear(256, 64),
+            nn.LayerNorm((256,)),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.LayerNorm((128,)),
+            nn.ReLU(),
+            nn.Linear(128, 64),
             nn.Tanh(),
             nn.Linear(64, action_dim)
         )
+
+        #
+        ### Initialize actor weights with orthogonal initialization (small gain). ###
+        #
+        for layer in self.actor:
+            #
+            if isinstance(layer, nn.Linear):
+                #
+                nn.init.orthogonal_(layer.weight, gain=0.01)
+                nn.init.constant_(layer.bias, 0.0)
 
         #
         ### Critic Head. ###
@@ -2485,9 +2511,9 @@ class ActorCritic(nn.Module):
         action_mean = self.actor(features)
 
         #
-        ### Sample action. ###
+        ### Sample action using log_std. ###
         #
-        action_std = torch.sqrt(self.action_var).to(state.device)
+        action_std = torch.exp(self.action_log_std).clamp(min=0.01, max=1.0).to(state.device)
         dist = Normal(action_mean, action_std)
 
         #
@@ -2505,7 +2531,7 @@ class ActorCritic(nn.Module):
         action_mean = self.actor(features)
 
         #
-        action_std = torch.sqrt(self.action_var).to(state.device)
+        action_std = torch.exp(self.action_log_std).clamp(min=0.01, max=1.0).to(state.device)
         dist = Normal(action_mean, action_std)
 
         #

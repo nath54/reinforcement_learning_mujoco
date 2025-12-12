@@ -4,7 +4,7 @@ simulation:
   robot_view_range: 4.0
   max_steps: 30000
   env_precision: 0.2
-  warmup_steps: 1000
+  warmup_steps: 100
 
 robot:
   xml_path: "four_wheels_robot.xml"
@@ -27,3 +27,4 @@ training:
   k_epochs: 4
   eps_clip: 0.2
   update_timestep: 4000
+  gae_lambda: 0.95
