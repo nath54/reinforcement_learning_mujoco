@@ -3542,8 +3542,13 @@ class Main:
         vision_size = vision_width * vision_height
         state_dim = vision_size + 13
         #
-        action_dim = 4
-        agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip, gae_lambda=config.training.gae_lambda)
+        if config.robot.control_mode == "discrete_direction":
+            action_dim = 4
+        elif config.robot.control_mode == "continuous_vector":
+            action_dim = 2
+        else:
+            action_dim = 4
+        agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip, gae_lambda=config.training.gae_lambda, control_mode=config.robot.control_mode)
 
         #
         try:
