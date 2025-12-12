@@ -16,10 +16,10 @@ rewards:
 
 training:
   agent_type: "ppo"
-  max_episodes: 1000
+  max_episodes: 20000
   model_path: "ppo_robot_corridor.pth"
   load_weights_from: null
-  learning_rate: 0.02
+  learning_rate: 0.0003
   gamma: 0.99
   k_epochs: 4
   eps_clip: 0.2

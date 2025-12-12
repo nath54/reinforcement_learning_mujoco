@@ -591,7 +591,7 @@ class Corridor:
         corridor_width: ValType = ValType(3.0),                 # Value, or random in [min_value, max_value]
         obstacles_mode: str = "none",                           # 'none', 'sinusoidal`, `double_sinusoidal`, `random`
         obstacles_mode_param: Optional[dict[str, Any]] = None,  # specific parameters for `obstacles_mode`, ex: `obstacle_separation` for `sinusoidal` mode
-        corridor_shift_x: float = -25.0,
+        corridor_shift_x: float = -3.0,
     ) -> dict[str, Any]:
 
         #
@@ -622,7 +622,7 @@ class Corridor:
 
         #
         wall_width: float = 0.3
-        wall_height: float = 10.0
+        wall_height: float = 3.0
 
         #
         ## Add global scene ground. ##
@@ -1951,6 +1951,8 @@ class CorridorEnv(gym.Env):
         
         #
         self.previous_action = np.zeros(4, dtype=np.float64)
+        #
+        self.current_step_count = 0
 
     #
     def set_collision_system(self, collision_system: EfficientCollisionSystemBetweenEnvAndAgent):
@@ -1992,6 +1994,8 @@ class CorridorEnv(gym.Env):
         
         #
         self.previous_action = np.zeros(4, dtype=np.float64)
+        #
+        self.current_step_count = 0
 
         return self.get_observation(), {}
 
@@ -2022,6 +2026,9 @@ class CorridorEnv(gym.Env):
         mujoco.mj_step(self.model, self.data)
         
         #
+        self.current_step_count += 1
+        
+        #
         ### Update previous action. ###
         #
         self.previous_action = action
@@ -2033,28 +2040,16 @@ class CorridorEnv(gym.Env):
         
         #
         ### Reward ###
-        ### 1. Progress reward (Continuous) ###
-        ### Use velocity in X direction for smoother continuous reward ###
+        ### 1. Progress reward (Relative to virtual pacer) ###
+        ### Reward = x_pos - (0.01 * step) ###
+        ### If robot is faster than 0.01 m/step, reward is positive. ###
         #
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
-        x_vel = self.data.cvel[robot_id][0]
         x_pos = self.data.xpos[robot_id][0]
         y_pos = self.data.xpos[robot_id][1]
         
         #
-        ### Reward is proportional to forward velocity ###
-        ### Increased weight for x_vel from 1.0 to 2.0 to incentivize speed ###
-        #
-        # reward = x_vel * 2.0
-        # reward = (x_pos - 20) * 2.0 # OLD REWARD causing negative scores
-        
-        #
-        ### NEW REWARD: Velocity based to avoid negative accumulation ###
-        #
-        reward = x_vel * 2.0
-        
-        #
-        reward += (x_pos) / 1000.0
+        reward = x_pos - (0.01 * self.current_step_count)
 
         #
         ### 2. Survival reward (optional) ###
@@ -2124,6 +2119,11 @@ class CorridorEnv(gym.Env):
             terminated = True
             #
             reward += self.config.rewards.goal
+
+        #
+        if reward < -10.0:
+            #
+            truncated = True
             
         #
         return obs, reward, terminated, truncated, {}
@@ -2266,7 +2266,7 @@ class PPOAgent:
         state_dim: int,
         action_dim: int,
         vision_shape: tuple[int, int],
-        lr: float = 0.02,
+        lr: float = 0.0003,
         gamma: float = 0.99,
         K_epochs: int = 4,
         eps_clip: float = 0.2,
