@@ -10,6 +10,7 @@ import random
 import time
 import yaml
 from dataclasses import dataclass, field
+from collections import deque
 #
 from math import floor, sin, pi
 #
@@ -48,7 +49,7 @@ import cv2
 
 
 #
-def quaternion_to_euler(x: float, y: float, z: float, w: float) -> Vec3:
+def quaternion_to_euler(x: float, y: float, z: float, w: float) -> 'Vec3':
 
     #
     t0: float = +2.0 * (w * x + y * z)
@@ -79,12 +80,14 @@ class SimulationConfig:
     robot_view_range: float = 3.0
     max_steps: int = 2000
     env_precision: float = 0.1
+    warmup_steps: int = 50
 
 #
 @dataclass
 class RobotConfig:
     #
     xml_path: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "four_wheels_robot.xml")
+    action_smoothing_k: int = 1
 
 #
 @dataclass
@@ -2100,6 +2103,11 @@ class CorridorEnv(gym.Env):
         )
 
         #
+        ### Action smoothing history. ###
+        #
+        self.action_history: deque = deque(maxlen=config.robot.action_smoothing_k)
+
+        #
         ### Variables for straight line penalty. ###
         #
         self.straight_start_x: float = 0.0
@@ -2138,6 +2146,14 @@ class CorridorEnv(gym.Env):
             self.data.xpos[robot_id][2] = 0.2
 
         #
+        ### Warmup steps to let the robot settle. ###
+        #
+        self.physics.robot_wheels_speed[:] = 0
+        for _ in range(self.config.simulation.warmup_steps):
+            #
+            mujoco.mj_step(self.model, self.data)
+
+        #
         ### Initial observation. ###
         #
 
@@ -2153,10 +2169,15 @@ class CorridorEnv(gym.Env):
         #
         self.current_step_count = 0
 
+        #
+        ### Clear action history. ###
+        #
+        self.action_history.clear()
+
         return self.get_observation(), {}
 
     #
-    def step(self, action):
+    def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
 
         #
         ### Action is 4 continuous values for wheel speeds ###
@@ -2165,10 +2186,16 @@ class CorridorEnv(gym.Env):
         action = np.clip(action, -1.0, 1.0)
 
         #
+        ### Smooth action. ###
+        #
+        self.action_history.append(action)
+        avg_action = np.mean(self.action_history, axis=0)
+
+        #
         ### Map action to wheel speeds (e.g. max speed 200). ###
         #
         max_speed = 200.0
-        target_speeds = action * max_speed
+        target_speeds = avg_action * max_speed
 
         #
         ### Apply to physics. ###
@@ -2698,7 +2725,7 @@ class PPOAgent:
             #
             loss.mean().backward()
             #
-            torch.nn.utils.clp_grad_norm_(self.policy.parameters(), 0.5)
+            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 0.5)
             #
             self.optimizer.step()
 
@@ -2877,7 +2904,7 @@ class Main:
             #
             ### Mainloop. ###
             #
-            target_dt: float = 1.0 / 240.0
+            target_dt: float = 1.0 / 400.0
             #
             while viewer_instance.is_running() and not state.controls.quit_requested:
 
@@ -3057,7 +3084,7 @@ class Main:
         #
         ### Determine number of environments. ###
         #
-        num_envs: int = min(8, mp.cpu_count())
+        num_envs: int = min(50, mp.cpu_count())
         #
         print(f"Using {num_envs} parallel environments.")
 
@@ -3200,9 +3227,11 @@ class Main:
             #
             ### Update PPO. ###
             #
-            # PASS CURRENT STATE (which is next_state of the last step) AND DONE FLAGS FOR BOOTSTRAPPING
+            ## PASS CURRENT STATE (which is next_state of the last step) AND DONE FLAGS FOR BOOTSTRAPPING. ##
+            #
             agent.update(memory, state, done)
             memory.clear_memory()
+            #
             time_step = 0
 
             #
