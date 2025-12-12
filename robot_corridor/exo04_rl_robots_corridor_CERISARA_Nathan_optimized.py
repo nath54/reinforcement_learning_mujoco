@@ -494,18 +494,22 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
 
         #
         for rect in environment_obstacles:
+
             #
             start_x: int = int((rect.corner_top_left.x - env_bounds.corner_top_left.x) / env_precision)
             end_x: int = int((rect.corner_bottom_right.x - env_bounds.corner_top_left.x) / env_precision)
             start_y: int = int((rect.corner_top_left.y - env_bounds.corner_top_left.y) / env_precision)
             end_y: int = int((rect.corner_bottom_right.y - env_bounds.corner_top_left.y) / env_precision)
 
-            # Clip to bounds
+            #
+            ### Clip to bounds. ###
+            #
             start_x = max(0, start_x)
             end_x = min(self.env_matrix.shape[0], end_x)
             start_y = max(0, start_y)
             end_y = min(self.env_matrix.shape[1], end_y)
 
+            #
             self.env_matrix[start_x:end_x, start_y:end_y] = rect.height
 
     #
@@ -551,28 +555,43 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
         #
         ### 3. Extract the sub-matrix. ###
         #
-        # Create a zero-filled matrix of the desired size
+
+        #
+        ### Create a zero-filled matrix of the desired size. ###
+        #
         vision_matrix_size_x: int = end_x - start_x
         vision_matrix_size_y: int = end_y - start_y
         vision_matrix: NDArray[np.float64] = np.zeros((vision_matrix_size_x, vision_matrix_size_y), dtype=np.float64)
 
-        # Calculate overlap with the environment matrix
+        #
+        ### Calculate overlap with the environment matrix. ###
+        #
         env_max_x, env_max_y = self.env_matrix.shape
 
-        # Intersection in environment coordinates
+        #
+        ### Intersection in environment coordinates. ###
+        #
         inter_start_x: int = max(0, start_x)
         inter_end_x: int = min(env_max_x, end_x)
         inter_start_y: int = max(0, start_y)
         inter_end_y: int = min(env_max_y, end_y)
 
-        # If there is an overlap, copy the data
+        #
+        ### If there is an overlap, copy the data. ###
+        #
         if inter_start_x < inter_end_x and inter_start_y < inter_end_y:
-            # Calculate where to paste in the vision matrix
+
+            #
+            ### Calculate where to paste in the vision matrix. ###
+            #
             paste_start_x: int = inter_start_x - start_x
             paste_end_x: int = paste_start_x + (inter_end_x - inter_start_x)
             paste_start_y: int = inter_start_y - start_y
             paste_end_y: int = paste_start_y + (inter_end_y - inter_start_y)
 
+            #
+            ### Copy the data. ###
+            #
             vision_matrix[paste_start_x:paste_end_x, paste_start_y:paste_end_y] = \
                 self.env_matrix[inter_start_x:inter_end_x, inter_start_y:inter_end_y]
 
@@ -586,6 +605,9 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
             previous_action[0], previous_action[1], previous_action[2], previous_action[3]
         ], dtype=np.float64)
 
+        #
+        ### Return the flattened vision matrix and the state vector. ###
+        #
         return np.concatenate((vision_matrix.flatten(), state_vector))
 
 
@@ -636,8 +658,6 @@ class Corridor:
 
         #
         self.xml_file_path: str = "corridor_3x100.xml"  # "corridor_custom.xml"
-
-        # OBJECTIVE WILL BE TO HAVE A CUSTOM AND VERY EFFICIENT TOP DOWN 2D RECTANGULAR VISION SYSTEM FOR THE ROBOT AGENT
 
 
     #
@@ -772,6 +792,8 @@ class Corridor:
 
         #
         ## Add the four walls. ##
+        #
+
         #
         ## Wall 1 (Negative Y side) ##
         #
@@ -2276,15 +2298,30 @@ class CorridorEnv(gym.Env):
             return np.zeros(48)
 
         #
+        ### Get robot ID. ###
+        #
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
+
+        #
+        ### Get position. ###
         #
         pos = Vec3(self.data.xpos[robot_id][0], self.data.xpos[robot_id][1], self.data.xpos[robot_id][2])
 
-        # Get rotation from quaternion
+        #
+        ### Get rotation from quaternion. ###
+        #
         quat = self.data.xquat[robot_id]
+        #
         rot = quaternion_to_euler(quat[1], quat[2], quat[3], quat[0]) # Mujoco quat is w, x, y, z
 
+        #
+        ### Get velocity. ###
+        #
         vel = Vec3(self.data.cvel[robot_id][0], self.data.cvel[robot_id][1], self.data.cvel[robot_id][2])
+
+        #
+        ### Get acceleration. ###
+        #
         # acc = Vec3(self.data.cacc[robot_id][0], self.data.cacc[robot_id][1], self.data.cacc[robot_id][2])
 
         #
@@ -2294,6 +2331,7 @@ class CorridorEnv(gym.Env):
 #
 class ActorCritic(nn.Module):
 
+    #
     def __init__(self, state_dim: int, action_dim: int, vision_shape: tuple[int, int], state_vector_dim: int = 13, action_std_init: float = 0.6) -> None:
 
         #
@@ -2488,10 +2526,15 @@ class PPOAgent:
             #
             ### Handle single observation (1D) by adding batch dimension. ###
             #
-            is_single_obs = state.ndim == 1
+            is_single_obs = (state.ndim == 1)
+            #
             if is_single_obs:
+                #
                 state_tensor = state_tensor.unsqueeze(0)
 
+            #
+            ### Select action. ###
+            #
             action_tensor, action_logprob_tensor = self.policy_old.act(state_tensor)
 
         #
@@ -2652,8 +2695,11 @@ class PPOAgent:
             ### Optimize the policy. ###
             #
             self.optimizer.zero_grad()
+            #
             loss.mean().backward()
+            #
             torch.nn.utils.clp_grad_norm_(self.policy.parameters(), 0.5)
+            #
             self.optimizer.step()
 
         #
