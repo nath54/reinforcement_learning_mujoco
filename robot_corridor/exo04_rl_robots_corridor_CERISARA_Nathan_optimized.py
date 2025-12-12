@@ -3283,6 +3283,26 @@ class Main:
                 else:
                     #
                     print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.4f} \t Avg Reward/Step: {avg_reward_per_step:.4f}")
+
+
+                #
+                ### Check for best model. ###
+                #
+                if avg_reward > best_reward:
+                    #
+                    best_reward = avg_reward
+                    #
+                    print(f"New best reward: {best_reward:.4f}! Saving best model...")
+                    #
+                    torch.save(agent.policy.state_dict(), best_model_path)
+
+                    #
+                    ### Save metadata. ###
+                    #
+                    with open(best_model_info_path, 'w') as f:
+                        #
+                        json.dump({'best_reward': best_reward, 'episode': i_episode}, f)
+
                 #
                 print_running_reward = 0
                 print_nb_episodes = 0
@@ -3295,23 +3315,6 @@ class Main:
                     #
                     torch.save(agent.policy.state_dict(), model_path)
 
-                    #
-                    ### Check for best model. ###
-                    #
-                    if avg_reward > best_reward:
-                        #
-                        best_reward = avg_reward
-                        #
-                        print(f"New best reward: {best_reward:.4f}! Saving best model...")
-                        #
-                        torch.save(agent.policy.state_dict(), best_model_path)
-
-                        #
-                        ### Save metadata. ###
-                        #
-                        with open(best_model_info_path, 'w') as f:
-                            #
-                            json.dump({'best_reward': best_reward, 'episode': i_episode}, f)
 
         #
         envs.close()
