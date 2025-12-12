@@ -13,9 +13,9 @@ robot:
 rewards:
   goal: 100.0
   collision: -0.05
-  straight_line_penalty: 0.5
-  straight_line_dist: 15.0
-  pacer_speed: 0.005
+  straight_line_penalty: 0.1
+  straight_line_dist: 40.0
+  pacer_speed: 0.004
 
 training:
   agent_type: "ppo"

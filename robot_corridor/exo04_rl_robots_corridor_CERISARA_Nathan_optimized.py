@@ -2314,7 +2314,7 @@ class CorridorEnv(gym.Env):
             truncated = True
 
         #
-        reward *= 0.0001
+        reward *= 0.01
 
         #
         if terminated:
@@ -3274,15 +3274,15 @@ class Main:
                 #
                 if delta_episodes_display > 5:
                     #
-                    print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.2f} (min: {min(running_rewards):.2f}, max: {max(running_rewards):.2f}) \t Avg Reward/Step: {avg_reward_per_step:.4f}")
+                    print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.4f} (min: {min(running_rewards):.4f}, max: {max(running_rewards):.4f}) \t Avg Reward/Step: {avg_reward_per_step:.4f}")
                 #
                 elif delta_episodes_display == 1:
                     #
-                    print(f"Update {i_episode} \t Reward: {avg_reward:.2f} \t Reward/Step: {avg_reward_per_step:.4f}")
+                    print(f"Update {i_episode} \t Reward: {avg_reward:.4f} \t Reward/Step: {avg_reward_per_step:.4f}")
                 #
                 else:
                     #
-                    print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.2f} \t Avg Reward/Step: {avg_reward_per_step:.4f}")
+                    print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.4f} \t Avg Reward/Step: {avg_reward_per_step:.4f}")
                 #
                 print_running_reward = 0
                 print_nb_episodes = 0
@@ -3302,7 +3302,7 @@ class Main:
                         #
                         best_reward = avg_reward
                         #
-                        print(f"New best reward: {best_reward:.2f}! Saving best model...")
+                        print(f"New best reward: {best_reward:.4f}! Saving best model...")
                         #
                         torch.save(agent.policy.state_dict(), best_model_path)
 
