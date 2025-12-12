@@ -15,7 +15,7 @@ rewards:
   collision: -0.05
   straight_line_penalty: 0.5
   straight_line_dist: 15.0
-  pacer_speed: 0.002
+  pacer_speed: 0.005
 
 training:
   agent_type: "ppo"

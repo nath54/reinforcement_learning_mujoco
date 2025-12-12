@@ -2317,6 +2317,16 @@ class CorridorEnv(gym.Env):
         reward *= 0.0001
 
         #
+        if terminated:
+            #
+            reward += 10
+
+        #
+        if truncated:
+            #
+            reward -= 10
+
+        #
         return obs, reward, terminated, truncated, {}
 
     #
@@ -3118,6 +3128,7 @@ class Main:
         #
         print_running_reward = 0
         print_running_episodes = 0
+        print_nb_episodes = 0
 
         #
         time_step = 0
@@ -3192,6 +3203,9 @@ class Main:
             steps_per_update: int = update_timestep // num_envs
 
             #
+            running_rewards: list[float] = []
+
+            #
             for t in range(steps_per_update):
 
                 #
@@ -3224,10 +3238,8 @@ class Main:
                 ### Track rewards (approximate for printing). ###
                 #
                 print_running_reward += np.sum(reward)
-                #
-                ### We count "episodes" as number of done flags. ###
-                #
-                print_running_episodes += np.sum(done)
+                running_rewards.append(np.sum(reward))
+                print_nb_episodes += 1
 
             #
             ### Update PPO. ###
@@ -3243,51 +3255,63 @@ class Main:
             i_episode += 1
 
             #
-            if i_episode % 10 == 0:
+            delta_episodes_display: int = 1
 
-                #
-                ### Avoid division by zero. ###
-                # #
-                # if print_running_episodes == 0:
-                #     #
-                #     print_running_episodes = 1
+            #
+            delta_episodes_save_model: int = 10
+
+            #
+            if i_episode % delta_episodes_display == 0:
 
                 #
                 ### Also calculate avg reward per step to detect if episodes are just getting very long ###
                 ### We know exactly how many steps passed: `steps_per_update * 10` ###
                 #
                 total_steps_in_log_interval = steps_per_update * 10
-                avg_reward = print_running_reward / max(1, print_running_episodes)
+                avg_reward = print_running_reward / max(1, print_nb_episodes)
                 avg_reward_per_step = print_running_reward / total_steps_in_log_interval
 
                 #
-                print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.2f} \t Avg Reward/Step: {avg_reward_per_step:.4f} \t Total finished Episodes: {print_running_episodes}")
+                if delta_episodes_display > 5:
+                    #
+                    print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.2f} (min: {min(running_rewards):.2f}, max: {max(running_rewards):.2f}) \t Avg Reward/Step: {avg_reward_per_step:.4f}")
+                #
+                elif delta_episodes_display == 1:
+                    #
+                    print(f"Update {i_episode} \t Reward: {avg_reward:.2f} \t Reward/Step: {avg_reward_per_step:.4f}")
+                #
+                else:
+                    #
+                    print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.2f} \t Avg Reward/Step: {avg_reward_per_step:.4f}")
                 #
                 print_running_reward = 0
-                print_running_episodes = 0
+                print_nb_episodes = 0
 
                 #
-                ### Save latest model. ###
-                #
-                torch.save(agent.policy.state_dict(), model_path)
-
-                #
-                ### Check for best model. ###
-                #
-                if avg_reward > best_reward:
-                    #
-                    best_reward = avg_reward
-                    #
-                    print(f"New best reward: {best_reward:.2f}! Saving best model...")
-                    #
-                    torch.save(agent.policy.state_dict(), best_model_path)
+                if i_episode % delta_episodes_save_model == 0:
 
                     #
-                    ### Save metadata. ###
+                    ### Save latest model. ###
                     #
-                    with open(best_model_info_path, 'w') as f:
+                    torch.save(agent.policy.state_dict(), model_path)
+
+                    #
+                    ### Check for best model. ###
+                    #
+                    if avg_reward > best_reward:
                         #
-                        json.dump({'best_reward': best_reward, 'episode': i_episode}, f)
+                        best_reward = avg_reward
+                        #
+                        print(f"New best reward: {best_reward:.2f}! Saving best model...")
+                        #
+                        torch.save(agent.policy.state_dict(), best_model_path)
+
+                        #
+                        ### Save metadata. ###
+                        #
+                        with open(best_model_info_path, 'w') as f:
+                            #
+                            json.dump({'best_reward': best_reward, 'episode': i_episode}, f)
 
         #
         envs.close()
