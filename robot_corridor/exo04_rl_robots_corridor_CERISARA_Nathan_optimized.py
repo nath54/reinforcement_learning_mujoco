@@ -3247,21 +3247,21 @@ class Main:
 
                 #
                 ### Avoid division by zero. ###
-                #
-                if print_running_episodes == 0:
-                    #
-                    print_running_episodes = 1
+                # #
+                # if print_running_episodes == 0:
+                #     #
+                #     print_running_episodes = 1
 
                 #
                 ### Also calculate avg reward per step to detect if episodes are just getting very long ###
                 ### We know exactly how many steps passed: `steps_per_update * 10` ###
                 #
                 total_steps_in_log_interval = steps_per_update * 10
-                avg_reward = print_running_reward / print_running_episodes
+                avg_reward = print_running_reward / max(1, print_running_episodes)
                 avg_reward_per_step = print_running_reward / total_steps_in_log_interval
 
                 #
-                print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.2f} \t Avg Reward/Step: {avg_reward_per_step:.4f} \t Total Episodes: {print_running_episodes}")
+                print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.2f} \t Avg Reward/Step: {avg_reward_per_step:.4f} \t Total finished Episodes: {print_running_episodes}")
                 #
                 print_running_reward = 0
                 print_running_episodes = 0
