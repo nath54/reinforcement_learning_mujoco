@@ -2381,7 +2381,8 @@ class ActorCritic(nn.Module):
 
         #
         self.action_dim = action_dim
-        self.action_var = torch.full((action_dim,), action_std_init * action_std_init)
+        # Make action variance learnable
+        self.action_var = nn.Parameter(torch.full((action_dim,), action_std_init * action_std_init))
         self.vision_shape = vision_shape
         self.state_vector_dim = state_vector_dim
         self.vision_size = vision_shape[0] * vision_shape[1]
@@ -2429,8 +2430,7 @@ class ActorCritic(nn.Module):
             nn.Tanh(),
             nn.Linear(256, 64),
             nn.Tanh(),
-            nn.Linear(64, action_dim),
-            nn.Tanh()
+            nn.Linear(64, action_dim)
         )
 
         #
