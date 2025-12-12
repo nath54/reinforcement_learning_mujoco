@@ -51,16 +51,16 @@ def quaternion_to_euler(x, y, z, w):
     t0 = +2.0 * (w * x + y * z)
     t1 = +1.0 - 2.0 * (x * x + y * y)
     roll_x = np.arctan2(t0, t1)
-    
+
     t2 = +2.0 * (w * y - z * x)
     t2 = +1.0 if t2 > +1.0 else t2
     t2 = -1.0 if t2 < -1.0 else t2
     pitch_y = np.arcsin(t2)
-    
+
     t3 = +2.0 * (w * z + x * y)
     t4 = +1.0 - 2.0 * (y * y + z * z)
     yaw_z = np.arctan2(t3, t4)
-    
+
     return Vec3(roll_x, pitch_y, yaw_z)
 
 @dataclass
@@ -81,6 +81,7 @@ class RewardConfig:
     collision: float = -0.05
     straight_line_penalty: float = 0.5
     straight_line_dist: float = 15.0
+    pacer_speed: float = 0.01
 
 @dataclass
 class TrainingConfig:
@@ -101,7 +102,7 @@ class SimConfig:
     robot: RobotConfig = field(default_factory=RobotConfig)
     rewards: RewardConfig = field(default_factory=RewardConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
-    
+
     @staticmethod
     def load(path: str) -> "SimConfig":
         if not os.path.exists(path):
@@ -214,7 +215,7 @@ class SubprocVecEnv:
         if self.closed:
             return
         if self.waiting:
-            for remote in self.remotes:            
+            for remote in self.remotes:
                 remote.recv()
         for remote in self.remotes:
             remote.send(('close', None))
@@ -293,7 +294,7 @@ class Point2d:
         return Point2d(x=self.x-p.x, y=self.y-p.y)
 
 
-#   
+#
 ### Rect 2d ###
 #
 class Rect2d:
@@ -365,13 +366,13 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
             end_x: int = int((rect.corner_bottom_right.x - env_bounds.corner_top_left.x) / env_precision)
             start_y: int = int((rect.corner_top_left.y - env_bounds.corner_top_left.y) / env_precision)
             end_y: int = int((rect.corner_bottom_right.y - env_bounds.corner_top_left.y) / env_precision)
-            
+
             # Clip to bounds
             start_x = max(0, start_x)
             end_x = min(self.env_matrix.shape[0], end_x)
             start_y = max(0, start_y)
             end_y = min(self.env_matrix.shape[1], end_y)
-            
+
             self.env_matrix[start_x:end_x, start_y:end_y] = rect.height
 
     #
@@ -399,13 +400,13 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
         ### 2. Determine the range of indices to extract. ###
         #
         view_range_grid: int = int(robot_view_range / self.env_precision)
-        
+
         #
         start_x: int = robot_grid_x - view_range_grid
         end_x: int = robot_grid_x + view_range_grid
         start_y: int = robot_grid_y - view_range_grid
         end_y: int = robot_grid_y + view_range_grid
-        
+
         #
         ### Calculate vision size dynamically. ###
         #
@@ -424,7 +425,7 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
 
         # Calculate overlap with the environment matrix
         env_max_x, env_max_y = self.env_matrix.shape
-        
+
         # Intersection in environment coordinates
         inter_start_x: int = max(0, start_x)
         inter_end_x: int = min(env_max_x, end_x)
@@ -438,7 +439,7 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
             paste_end_x: int = paste_start_x + (inter_end_x - inter_start_x)
             paste_start_y: int = inter_start_y - start_y
             paste_end_y: int = paste_start_y + (inter_end_y - inter_start_y)
-            
+
             vision_matrix[paste_start_x:paste_end_x, paste_start_y:paste_end_y] = \
                 self.env_matrix[inter_start_x:inter_end_x, inter_start_y:inter_end_y]
 
@@ -664,7 +665,7 @@ class Corridor:
                 height=wall_1_height * 2 # The size is half-extent, height is full extent
             )
         )
-        
+
         #
         ## Wall 2 (Positive Y side) ##
         #
@@ -1096,7 +1097,7 @@ class RootWorldScene:
         #
         self.mujoco_model: mujoco.MjModel
         self.mujoco_data: mujoco.MjData
-        
+
         self.environment_rects: list[Rect2d] = []
         self.env_bounds: Rect2d = Rect2d(Point2d(0, -10), Point2d(100, 10)) # Approximate bounds, will be updated
 
@@ -1336,23 +1337,23 @@ class RootWorldScene:
             obstacles_mode="sinusoidal",
             obstacles_mode_param=GENERATE_CORRIDOR_PARAM["obstacles_mode_param"]
         )
-        
+
         #
         ### Store rects. ##
         ##
         if 'environment_rects' in corridor_components:
             #
             self.environment_rects = cast(list[Rect2d], corridor_components['environment_rects'])
-  
+
         #
         ### Large bounds for the scene. ###
         #
         margin = 50.0
         self.env_bounds = Rect2d(
-            Point2d(-margin, -config.simulation.corridor_width - margin), 
+            Point2d(-margin, -config.simulation.corridor_width - margin),
             Point2d(config.simulation.corridor_length + margin, config.simulation.corridor_width + margin)
         )
-        
+
         #
         self.mujoco_model = self.build_combined_model(
             robot_components=self.robot.extract_robot_from_xml(),
@@ -1909,14 +1910,14 @@ class CorridorEnv(gym.Env):
         self.render_mode = render_mode
         self.root_scene = RootWorldScene(config=config)
         self.root_scene.construct_scene(config=config, floor_type="standard", robot_height=1.0)
-        
+
         #
         self.model = self.root_scene.mujoco_model
         self.data = self.root_scene.mujoco_data
-        
+
         #
         self.physics = Physics(self.model, self.data)
-        
+
         #
         ### Initialize collision/vision system. ###
         #
@@ -1925,7 +1926,7 @@ class CorridorEnv(gym.Env):
             env_bounds=self.root_scene.env_bounds,
             env_precision=config.simulation.env_precision
         )
-        
+
         #
         ### Calculate observation space size. ###
         #
@@ -1934,7 +1935,7 @@ class CorridorEnv(gym.Env):
         vision_height = 2 * view_range_grid
         self.vision_size = vision_width * vision_height
         self.state_dim = self.vision_size + 13 # 13 for state vector
-        
+
         #
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(self.state_dim,), dtype=np.float32
@@ -1948,7 +1949,7 @@ class CorridorEnv(gym.Env):
         #
         self.straight_start_x: float = 0.0
         self.straight_y: float = 0.0
-        
+
         #
         self.previous_action = np.zeros(4, dtype=np.float64)
         #
@@ -1969,7 +1970,7 @@ class CorridorEnv(gym.Env):
         self.physics.data_scene.qvel[:] = 0
         self.physics.data_scene.qacc[:] = 0
         self.physics.robot_wheels_speed[:] = 0
-        
+
         #
         ### Set robot to start position. ###
         #
@@ -1980,18 +1981,18 @@ class CorridorEnv(gym.Env):
             ### Lift it up a bit to avoid stuck in floor. ###
             #
             self.data.xpos[robot_id][2] = 0.2
-            
+
         #
         ### Initial observation. ###
         #
-        
+
         #
         ### Reset straight line tracking. ###
         #
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
         self.straight_start_x = self.data.xpos[robot_id][0]
         self.straight_y = self.data.xpos[robot_id][1]
-        
+
         #
         self.previous_action = np.zeros(4, dtype=np.float64)
         #
@@ -2007,37 +2008,37 @@ class CorridorEnv(gym.Env):
         ### Clip action to reasonable range ###
         #
         action = np.clip(action, -1.0, 1.0)
-        
+
         #
         ### Map action to wheel speeds (e.g. max speed 200). ###
         #
         max_speed = 200.0
         target_speeds = action * max_speed
-        
+
         #
         ### Apply to physics. ###
         #
         self.physics.robot_wheels_speed[:] = target_speeds
-        
+
         #
         ### Step physics. ###
         #
         self.physics.apply_additionnal_physics()
         mujoco.mj_step(self.model, self.data)
-        
+
         #
         self.current_step_count += 1
-        
+
         #
         ### Update previous action. ###
         #
         self.previous_action = action
-        
+
         #
         ### Observation. ##
         ##
         obs = self.get_observation()
-        
+
         #
         ### Reward ###
         ### 1. Progress reward (Relative to virtual pacer) ###
@@ -2047,9 +2048,9 @@ class CorridorEnv(gym.Env):
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
         x_pos = self.data.xpos[robot_id][0]
         y_pos = self.data.xpos[robot_id][1]
-        
+
         #
-        reward = x_pos - (0.01 * self.current_step_count)
+        reward = x_pos - (self.config.rewards.pacer_speed * self.current_step_count)
 
         #
         ### 2. Survival reward (optional) ###
@@ -2082,13 +2083,13 @@ class CorridorEnv(gym.Env):
             #
             self.straight_start_x = x_pos
             self.straight_y = y_pos
-        
+
         #
         ### Done condition. ###
         #
         terminated = False
         truncated = False
-        
+
         #
         ### Bounded environment checks (User requested margins: x < -100, |y| > 40). ###
         ### If driving backwards too far. ###
@@ -2096,21 +2097,21 @@ class CorridorEnv(gym.Env):
         if self.data.xpos[robot_id][0] < -self.config.simulation.corridor_length:
             #
             truncated = True
-        
+
         #
         ### If wandering off sideways too far. ###
         #
         if abs(self.data.xpos[robot_id][1]) > self.config.simulation.corridor_width + 10.0: # Margin
             #
             truncated = True
-            
+
         #
         ### If fell off (z check). ###
         #
         if self.data.xpos[robot_id][2] < -5.0:
             #
             terminated = True
-        
+
         #
         ### If reached end (e.g. 100m). ###
         #
@@ -2124,7 +2125,10 @@ class CorridorEnv(gym.Env):
         if reward < -10.0:
             #
             truncated = True
-            
+
+        #
+        reward *= 0.0001
+
         #
         return obs, reward, terminated, truncated, {}
 
@@ -2137,16 +2141,16 @@ class CorridorEnv(gym.Env):
             ### Fallback. ###
             #
             return np.zeros(48)
-        
+
         #
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
         #
         pos = Vec3(self.data.xpos[robot_id][0], self.data.xpos[robot_id][1], self.data.xpos[robot_id][2])
-        
+
         # Get rotation from quaternion
         quat = self.data.xquat[robot_id]
         rot = quaternion_to_euler(quat[1], quat[2], quat[3], quat[0]) # Mujoco quat is w, x, y, z
-        
+
         vel = Vec3(self.data.cvel[robot_id][0], self.data.cvel[robot_id][1], self.data.cvel[robot_id][2])
         # acc = Vec3(self.data.cacc[robot_id][0], self.data.cacc[robot_id][1], self.data.cacc[robot_id][2])
 
@@ -2156,16 +2160,22 @@ class CorridorEnv(gym.Env):
 
 #
 class ActorCritic(nn.Module):
+
     def __init__(self, state_dim: int, action_dim: int, vision_shape: tuple[int, int], state_vector_dim: int = 13, action_std_init: float = 0.6) -> None:
+
+        #
         super(ActorCritic, self).__init__()
 
+        #
         self.action_dim = action_dim
         self.action_var = torch.full((action_dim,), action_std_init * action_std_init)
         self.vision_shape = vision_shape
         self.state_vector_dim = state_vector_dim
         self.vision_size = vision_shape[0] * vision_shape[1]
 
-        # CNN for Vision
+        #
+        ### CNN for Vision. ###
+        #
         self.cnn = nn.Sequential(
             nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
@@ -2176,12 +2186,16 @@ class ActorCritic(nn.Module):
             nn.Flatten()
         )
 
-        # Calculate CNN output size
+        #
+        ### Calculate CNN output size. ###
+        #
         with torch.no_grad():
             dummy_input = torch.zeros(1, 1, vision_shape[0], vision_shape[1])
             cnn_out_size = self.cnn(dummy_input).shape[1]
 
-        # Encoder for State Vector
+        #
+        ### Encoder for State Vector. ###
+        #
         self.state_encoder = nn.Sequential(
             nn.Linear(state_vector_dim, 64),
             nn.ReLU(),
@@ -2189,10 +2203,14 @@ class ActorCritic(nn.Module):
             nn.ReLU()
         )
 
-        # Fusion Dimension
+        #
+        ### Fusion Dimension. ###
+        #
         fusion_dim = cnn_out_size + 64
 
-        # Actor Head
+        #
+        ### Actor Head. ###
+        #
         self.actor = nn.Sequential(
             nn.Linear(fusion_dim, 256),
             nn.Tanh(),
@@ -2202,7 +2220,9 @@ class ActorCritic(nn.Module):
             nn.Tanh()
         )
 
-        # Critic Head
+        #
+        ### Critic Head. ###
+        #
         self.critic = nn.Sequential(
             nn.Linear(fusion_dim, 256),
             nn.Tanh(),
@@ -2211,49 +2231,76 @@ class ActorCritic(nn.Module):
             nn.Linear(64, 1)
         )
 
+    #
     def forward(self):
+        #
         raise NotImplementedError
 
+    #
     def _process_input(self, state: torch.Tensor):
-        # Split input into vision and state vector
-        # state shape: (batch_size, vision_size + state_vector_dim)
-        
+
+        #
+        ### Split input into vision and state vector. ###
+        ### state shape: (batch_size, vision_size + state_vector_dim). ###
+        #
         vision_flat = state[:, :self.vision_size]
         state_vec = state[:, self.vision_size:]
 
-        # Reshape vision to (batch_size, 1, height, width)
+        #
+        ### Reshape vision to (batch_size, 1, height, width). ###
+        #
         vision_img = vision_flat.view(-1, 1, self.vision_shape[0], self.vision_shape[1])
 
-        # Encode
+        #
+        ### Encode. ###
+        #
         vision_features = self.cnn(vision_img)
         state_features = self.state_encoder(state_vec)
 
-        # Fuse
+        #
+        ### Fuse. ###
+        #
         return torch.cat((vision_features, state_features), dim=1)
 
+    #
     def act(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+
+        #
+        ### Process input. ###
+        #
         features = self._process_input(state)
         action_mean = self.actor(features)
-        
+
+        #
+        ### Sample action. ###
+        #
         action_std = torch.sqrt(self.action_var).to(state.device)
         dist = Normal(action_mean, action_std)
-        
+
+        #
         action = dist.sample()
         action_logprob = dist.log_prob(action).sum(axis=-1)
-        
+
+        #
         return action.detach(), action_logprob.detach()
-    
+
+    #
     def evaluate(self, state: torch.Tensor, action: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+
+        #
         features = self._process_input(state)
         action_mean = self.actor(features)
-        
+
+        #
         action_std = torch.sqrt(self.action_var).to(state.device)
         dist = Normal(action_mean, action_std)
-        
+
+        #
         action_logprobs = dist.log_prob(action).sum(axis=-1)
         dist_entropy = dist.entropy().sum(axis=-1)
         state_values = self.critic(features)
-        
+
+        #
         return action_logprobs, state_values, dist_entropy
 
 
@@ -2278,14 +2325,14 @@ class PPOAgent:
         self.eps_clip: float = eps_clip
         self.K_epochs: int = K_epochs
         self.gae_lambda: float = gae_lambda
-        
+
         #
         ### Detect device. ###
         #
         self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         #
         print(f"PPOAgent using device: {self.device}")
-        
+
         #
         self.action_dim: int = action_dim
         #
@@ -2293,10 +2340,10 @@ class PPOAgent:
         self.optimizer: optim.Adam = optim.Adam(self.policy.parameters(), lr=lr)
         self.policy_old: 'ActorCritic' = cast('ActorCritic', ActorCritic(state_dim, action_dim, vision_shape).float().to(self.device))
         self.policy_old.load_state_dict(self.policy.state_dict())
-        
+
         #
         self.MseLoss: nn.MSELoss = nn.MSELoss()
-        
+
     #
     def select_action(self, state: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
@@ -2304,76 +2351,103 @@ class PPOAgent:
         with torch.no_grad():
             #
             state_tensor: torch.Tensor = torch.FloatTensor(state).to(self.device)
-            
-            # Handle single observation (1D) by adding batch dimension
+
+            #
+            ### Handle single observation (1D) by adding batch dimension. ###
+            #
             is_single_obs = state.ndim == 1
             if is_single_obs:
                 state_tensor = state_tensor.unsqueeze(0)
-                
+
             action_tensor, action_logprob_tensor = self.policy_old.act(state_tensor)
 
         #
         action = action_tensor.cpu().numpy()
         action_logprob = action_logprob_tensor.cpu().numpy()
-        
-        # If input was single observation, flatten output to match
+
+        #
+        ### If input was single observation, flatten output to match. ###
+        #
         if is_single_obs:
+            #
             return action.flatten(), action_logprob.flatten()
-            
+
+        #
         return action, action_logprob
-        
+
     #
     def update(self, memory: 'Memory', next_state: np.ndarray, next_done: np.ndarray) -> None:
 
         #
         ### GAE (Generalized Advantage Estimation) ###
         #
-        
-        # 1. Convert memory to tensors
+
+        #
+        ### 1. Convert memory to tensors. ###
+        #
         old_states = torch.stack(memory.states).to(self.device).detach()
         old_actions = torch.stack(memory.actions).to(self.device).detach()
         old_logprobs = torch.tensor(np.array(memory.logprobs), dtype=torch.float32).to(self.device).detach()
-        
-        # Flattened versions for training later
-        # (T * num_envs, ...)
+
+        #
+        ### Flattened versions for training later. ###
+        ### (T * num_envs, ...). ###
+        #
         old_states_flat = old_states.view(-1, self.policy.vision_size + self.policy.state_vector_dim)
         old_actions_flat = old_actions.view(-1, self.action_dim)
         old_logprobs_flat = old_logprobs.view(-1)
-        
-        # 2. Get values for all states
-        # We process in batches to avoid OOM if needed, but for simplicity we do full batch now
-        # shape: (T, num_envs, 1)
+
+        #
+        ### 2. Get values for all states. ###
+        ### We process in batches to avoid OOM if needed, but for simplicity we do full batch now. ###
+        ### shape: (T, num_envs, 1). ###
+        #
         with torch.no_grad():
-            # Get values of all current states
+
+            #
+            ### Get values of all current states. ###
+            #
             values = self.policy.critic(self.policy._process_input(old_states_flat)).view(len(memory.states), -1)
-            
-            # Get value of next state (bootstrapping)
+
+            #
+            ### Get value of next state (bootstrapping). ###
+            #
             next_state_tensor = torch.FloatTensor(next_state).to(self.device)
+            #
             if next_state.ndim == 1:
+                #
                 next_state_tensor = next_state_tensor.unsqueeze(0)
+
+            #
             next_value = self.policy.critic(self.policy._process_input(next_state_tensor))
-            
-        # 3. Calculate GAE Advantages
-        # rewards shape: list of (num_envs,)
-        # is_terminals shape: list of (num_envs,)
-        
+
+        #
+        ### 3. Calculate GAE Advantages. ###
+        ### rewards shape: list of (num_envs,). ###
+        ### is_terminals shape: list of (num_envs,). ###
+        #
+
         rewards = np.array(memory.rewards)      # (T, num_envs)
         is_terminals = np.array(memory.is_terminals) # (T, num_envs)
-        
-        # Convert to tensor for GAE calculation
+
+        #
+        ### Convert to tensor for GAE calculation. ###
+        #
         rewards_t = torch.tensor(rewards, dtype=torch.float32).to(self.device)
         is_terminals_t = torch.tensor(is_terminals, dtype=torch.float32).to(self.device)
         next_done_t = torch.tensor(next_done, dtype=torch.float32).to(self.device) # (num_envs,)
-        
+
+        #
         returns = torch.zeros_like(rewards_t).to(self.device)
         advantages = torch.zeros_like(rewards_t).to(self.device)
-        
+
+        #
         gae = 0
-        
+
         num_steps = len(memory.rewards)
-        
+
         for t in range(num_steps - 1, -1, -1):
-            
+
             # If it is the last step
             if t == num_steps - 1:
                 next_non_terminal = 1.0 - next_done_t
@@ -2381,22 +2455,22 @@ class PPOAgent:
             else:
                 next_non_terminal = 1.0 - is_terminals_t[t + 1]
                 next_val = values[t + 1].squeeze()
-                
+
             delta = rewards_t[t] + self.gamma * next_val * next_non_terminal - values[t].squeeze()
             gae = delta + self.gamma * self.gae_lambda * next_non_terminal * gae
-            
+
             advantages[t] = gae
             returns[t] = advantages[t] + values[t].squeeze() # Return = Advantage + Value
-            
+
         # Flatten for training
         returns = returns.view(-1)
         advantages = advantages.view(-1)
-        
+
         #
         ### Normalize Advantages (Crucial for PPO stability) ###
         #
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-        
+
         #
         ### Optimize policy for K epochs. ###
         #
@@ -2408,26 +2482,26 @@ class PPOAgent:
             dist_entropy: torch.Tensor
             #
             logprobs, state_values, dist_entropy = self.policy.evaluate(old_states_flat, old_actions_flat)
-            
+
             #
             state_values = torch.squeeze(state_values)
-            
+
             #
             ratios: torch.Tensor = torch.exp(logprobs - old_logprobs_flat)
-            
+
             #
             # Use GAE Advantages here
             surr1: torch.Tensor = ratios * advantages
             surr2: torch.Tensor = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
-            
+
             #
             # Critic loss is MSE(Value, Returns)
             loss: torch.Tensor = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, returns) - 0.01*dist_entropy
-            
+
             #
             self.optimizer.zero_grad()
             loss.mean().backward()
-            #
+            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 0.5)
             self.optimizer.step()
 
         #
@@ -2446,7 +2520,7 @@ class Memory:
         self.logprobs: List[np.ndarray] = []        # Stored as numpy arrays in PPOAgent.update
         self.rewards: List[np.ndarray] = []         # Stored as numpy arrays in PPOAgent.update
         self.is_terminals: List[np.ndarray] = []    # Stored as numpy arrays in PPOAgent.update
-    
+
     #
     def clear_memory(self) -> None:
 
@@ -2781,7 +2855,7 @@ class Main:
 
         #
         print("Starting training...")
-        
+
         #
         ### Determine number of environments. ###
         #
@@ -2789,11 +2863,11 @@ class Main:
         #
         print(f"Using {num_envs} parallel environments.")
 
-        #   
-        #   
+        #
+        #
         from functools import partial
         envs = SubprocVecEnv([partial(make_env, config=config) for _ in range(num_envs)])
-        
+
         #
         # state_dim = 3612 # Vision (60x60=3600) + State (12)
         #
@@ -2806,19 +2880,19 @@ class Main:
         state_dim = vision_size + 13
         #
         action_dim = 4
-        
+
         #
         agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip, gae_lambda=config.training.gae_lambda)
         memory = Memory()
-        
+
         #
         print_running_reward = 0
         print_running_episodes = 0
-        
+
         #
         time_step = 0
         i_episode = 0
-        
+
         #
         ### Initial reset. ###
         #
@@ -2853,7 +2927,7 @@ class Main:
         best_reward = -float('inf')
         best_model_path = model_path.replace(".pth", "_best.pth")
         best_model_info_path = model_path.replace(".pth", "_best.json")
-        
+
         #
         ### Try to load previous best score if exists. ###
         #
@@ -2875,32 +2949,32 @@ class Main:
             except Exception as e:
                 #
                 print(f"Could not load previous best info: {e}")
-        
+
         #
         while i_episode < max_episodes:
 
-            #   
+            #
             ### Run for update_timestep steps (total across all envs) ###
             ### We want to collect update_timestep transitions. ###
             ### Each step collects num_envs transitions. ###
             ### So we run for update_timestep // num_envs iterations. ###
             #
             steps_per_update: int = update_timestep // num_envs
-            
+
             #
             for t in range(steps_per_update):
 
-                #   
+                #
                 ### Select action. ###
                 #
                 action, action_logprob = agent.select_action(state)
-                
+
                 #
                 ### Step. ###
                 #
                 next_state, reward, terminated, truncated, _ = envs.step(action)
                 done = np.logical_or(terminated, truncated)
-                
+
                 #
                 ### Save to memory. ###
                 #
@@ -2909,13 +2983,13 @@ class Main:
                 memory.logprobs.append(action_logprob)
                 memory.rewards.append(reward)
                 memory.is_terminals.append(done)
-                
+
                 #
                 state = next_state
-                
+
                 #
                 time_step += num_envs
-                
+
                 #
                 ### Track rewards (approximate for printing). ###
                 #
@@ -2924,7 +2998,7 @@ class Main:
                 ### We count "episodes" as number of done flags. ###
                 #
                 print_running_episodes += np.sum(done)
-            
+
             #
             ### Update PPO. ###
             #
@@ -2932,10 +3006,10 @@ class Main:
             agent.update(memory, state, done)
             memory.clear_memory()
             time_step = 0
-            
+
             #
             i_episode += 1
-            
+
             #
             if i_episode % 10 == 0:
 
@@ -2945,26 +3019,26 @@ class Main:
                 if print_running_episodes == 0:
                     #
                     print_running_episodes = 1
-                
+
                 #
                 ### Also calculate avg reward per step to detect if episodes are just getting very long ###
                 ### We know exactly how many steps passed: `steps_per_update * 10` ###
                 #
-                total_steps_in_log_interval = steps_per_update * 10 
+                total_steps_in_log_interval = steps_per_update * 10
                 avg_reward = print_running_reward / print_running_episodes
                 avg_reward_per_step = print_running_reward / total_steps_in_log_interval
-                
+
                 #
                 print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.2f} \t Avg Reward/Step: {avg_reward_per_step:.4f} \t Total Episodes: {print_running_episodes}")
                 #
                 print_running_reward = 0
                 print_running_episodes = 0
-                
+
                 #
                 ### Save latest model. ###
                 #
                 torch.save(agent.policy.state_dict(), model_path)
-                
+
                 #
                 ### Check for best model. ###
                 #
@@ -2975,17 +3049,17 @@ class Main:
                     print(f"New best reward: {best_reward:.2f}! Saving best model...")
                     #
                     torch.save(agent.policy.state_dict(), best_model_path)
-                    
+
                     #
                     ### Save metadata. ###
                     #
                     with open(best_model_info_path, 'w') as f:
                         #
                         json.dump({'best_reward': best_reward, 'episode': i_episode}, f)
-        
+
         #
         envs.close()
-                
+
     #
     @staticmethod
     def play(config: SimConfig = SimConfig(), model_path: Optional[str] = None, live_vision: bool = False):
@@ -2993,20 +3067,20 @@ class Main:
         #
         path = model_path if model_path else config.training.model_path
         print(f"Playing with model: {path}")
-        
+
         #
         ### Setup scene. ###
         #
         #
         root_scene = RootWorldScene()
         root_scene.construct_scene(config=config, floor_type="standard", robot_height=1.0)
-        
+
         #
         physics = Physics(root_scene.mujoco_model, root_scene.mujoco_data)
         camera = Camera()
         controls = Controls(physics, camera, render_mode=False)
         robot_track = TrackRobot(root_scene.mujoco_data)
-        
+
         #
         ### Setup Agent. ###
         #
@@ -3024,7 +3098,7 @@ class Main:
         #
         action_dim = 4
         agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip, gae_lambda=config.training.gae_lambda)
-        
+
         #
         try:
             #
@@ -3052,7 +3126,7 @@ class Main:
             env_bounds=root_scene.env_bounds,
             env_precision=config.simulation.env_precision
         )
-        
+
         #
         ### Calculate observation space size. ###
         #
@@ -3061,12 +3135,12 @@ class Main:
         vision_height = 2 * view_range_grid
         vision_size = vision_width * vision_height
         state_dim = vision_size + 13 # 13 for state vector
-        
+
         #
         observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(state_dim,), dtype=np.float32
         )
-        
+
         #
         ### Helper to get observation. ###
         #
@@ -3076,11 +3150,11 @@ class Main:
             robot_id = mujoco.mj_name2id(root_scene.mujoco_model, mujoco.mjtObj.mjOBJ_BODY, "robot")
             #
             pos = Vec3(root_scene.mujoco_data.xpos[robot_id][0], root_scene.mujoco_data.xpos[robot_id][1], root_scene.mujoco_data.xpos[robot_id][2])
-            
+
             # Get rotation from quaternion
             quat = root_scene.mujoco_data.xquat[robot_id]
             rot = quaternion_to_euler(quat[1], quat[2], quat[3], quat[0]) # Mujoco quat is w, x, y, z
-            
+
             vel = Vec3(root_scene.mujoco_data.cvel[robot_id][0], root_scene.mujoco_data.cvel[robot_id][1], root_scene.mujoco_data.cvel[robot_id][2])
             # acc = Vec3(root_scene.mujoco_data.cacc[robot_id][0], root_scene.mujoco_data.cacc[robot_id][1], root_scene.mujoco_data.cacc[robot_id][2])
 
@@ -3092,7 +3166,7 @@ class Main:
         #
         with viewer.launch_passive(root_scene.mujoco_model, root_scene.mujoco_data, key_callback=controls.key_callback) as viewer_instance:
 
-            #   
+            #
             state_obj = State(
                 mj_model=root_scene.mujoco_model,
                 mj_data=root_scene.mujoco_data,
@@ -3102,7 +3176,7 @@ class Main:
                 viewer_instance=viewer_instance,
                 robot_track=robot_track
             )
-            
+
             #
             ### Initial reset. ###
             #
@@ -3112,23 +3186,23 @@ class Main:
             robot_id = mujoco.mj_name2id(root_scene.mujoco_model, mujoco.mjtObj.mjOBJ_BODY, "robot")
             #
             root_scene.mujoco_data.xpos[robot_id][2] = 0.2
-            
+
             #
             previous_action = np.zeros(4, dtype=np.float64)
-            
+
             #
             while viewer_instance.is_running() and not state_obj.controls.quit_requested:
 
-                #   
+                #
                 ### Get observation. ###
                 #
                 obs = get_observation(previous_action)
-                
+
                 #
                 ### Get action from agent. ###
                 #
                 action, log_prob = agent.select_action(obs)
-                
+
                 #
                 ### Apply action. ###
                 #
@@ -3137,7 +3211,7 @@ class Main:
                 max_speed = 200.0
                 target_speeds = action * max_speed
                 physics.robot_wheels_speed[:] = target_speeds
-                
+
                 #
                 ### Step. ###
                 #
@@ -3147,30 +3221,30 @@ class Main:
                     # Extract vision
                     vision_data = obs[:vision_size]
                     vision_img = vision_data.reshape((vision_width, vision_height))
-                    
+
                     # Normalize for display
                     vision_display = cv2.normalize(vision_img, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-                    
+
                     # Resize
                     scale = 10
                     vision_display = cv2.resize(vision_display, (vision_height * scale, vision_width * scale), interpolation=cv2.INTER_NEAREST)
-                    
+
                     # Convert to BGR for colored text
                     vision_display = cv2.cvtColor(vision_display, cv2.COLOR_GRAY2BGR)
-                    
+
                     # Extract state
                     state_vec = obs[vision_size:]
-                    
+
                     info_text = [
                         f"Pos: {state_vec[0]:.2f}, {state_vec[1]:.2f}, {state_vec[2]:.2f}",
                         f"Rot: {state_vec[3]:.2f}, {state_vec[4]:.2f}, {state_vec[5]:.2f}",
                         f"Spd: {state_vec[6]:.2f}, {state_vec[7]:.2f}, {state_vec[8]:.2f}",
                         f"Prv: {state_vec[9]:.2f}, {state_vec[10]:.2f}, {state_vec[11]:.2f}, {state_vec[12]:.2f}"
                     ]
-                    
+
                     for idx, text in enumerate(info_text):
                         cv2.putText(vision_display, text, (10, 20 + idx * 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-                        
+
                     cv2.imshow("Robot Vision & State", vision_display)
                     cv2.waitKey(1)
 
@@ -3213,7 +3287,7 @@ if __name__ == "__main__":
         except RuntimeError:
             #
             pass
-        
+
         #
         Main.train(
             config=config
