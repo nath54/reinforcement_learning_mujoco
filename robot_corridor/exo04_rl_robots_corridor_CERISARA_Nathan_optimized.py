@@ -2166,6 +2166,10 @@ class CorridorEnv(gym.Env):
         self.previous_action = np.zeros(4, dtype=np.float64)
         #
         self.current_step_count = 0
+        #
+        ### Track previous x position for position-delta reward. ###
+        #
+        self.previous_x_pos: float = 0.0
 
     #
     def set_collision_system(self, collision_system: EfficientCollisionSystemBetweenEnvAndAgent):
@@ -2224,6 +2228,11 @@ class CorridorEnv(gym.Env):
         ### Clear action history. ###
         #
         self.action_history.clear()
+
+        #
+        ### Initialize previous x position for position-delta reward. ###
+        #
+        self.previous_x_pos = self.data.xpos[robot_id][0]
 
         #
         return self.get_observation(), {}
@@ -2374,9 +2383,10 @@ class CorridorEnv(gym.Env):
         #
         if self.config.rewards.use_velocity_reward:
             #
-            ### Velocity-based reward: positive for forward, negative for backward. ###
+            ### Absolute position reward: how far from starting point. ###
+            ### Further forward = higher reward. Simpler and more stable signal. ###
             #
-            reward = x_vel * self.config.rewards.velocity_reward_scale
+            reward = x_pos * self.config.rewards.velocity_reward_scale
         else:
             #
             ### Original pacer-based reward. ###
