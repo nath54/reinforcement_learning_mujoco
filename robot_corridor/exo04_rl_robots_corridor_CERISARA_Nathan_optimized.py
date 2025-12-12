@@ -12,7 +12,7 @@ import yaml
 from dataclasses import dataclass, field
 from collections import deque
 #
-from math import floor, sin, pi
+from math import floor, sin, pi, log
 #
 from matplotlib import pyplot as plt
 #
@@ -99,6 +99,9 @@ class RewardConfig:
     straight_line_penalty: float = 0.1
     straight_line_dist: float = 40.0
     pacer_speed: float = 0.004
+    # Velocity-based reward settings
+    use_velocity_reward: bool = True
+    velocity_reward_scale: float = 0.1
 
 #
 @dataclass
@@ -114,6 +117,16 @@ class TrainingConfig:
     eps_clip: float = 0.2
     update_timestep: int = 4000
     gae_lambda: float = 0.95
+    # New hyperparameters (previously hardcoded)
+    entropy_coeff: float = 0.02
+    value_loss_coeff: float = 0.5
+    grad_clip_max_norm: float = 0.5
+    action_std_init: float = 0.5
+    action_std_min: float = 0.01
+    action_std_max: float = 1.0
+    actor_hidden_gain: float = 1.414
+    actor_output_gain: float = 0.01
+    reward_scale: float = 1.0
 
 #
 @dataclass
@@ -2244,7 +2257,7 @@ class CorridorEnv(gym.Env):
                 target_speeds[1] = -max_speed
                 target_speeds[2] = max_speed
                 target_speeds[3] = -max_speed
-            
+
             #
             ### For discrete, we might want to smooth the target speeds or just apply them directly. ###
             ### Let's apply directly for now to be responsive, or use a small smoothing if needed. ###
@@ -2252,7 +2265,7 @@ class CorridorEnv(gym.Env):
             ### Let's bypass the complex smoothing for discrete for now and just set it. ###
             #
             self.physics.robot_wheels_speed[:] = target_speeds
-            
+
             #
             ### Update previous action for state (one-hot encoding or just the index?). ###
             ### The state vector expects 4 values for previous action. ###
@@ -2283,7 +2296,7 @@ class CorridorEnv(gym.Env):
             ### Clip to range. ###
             #
             raw_wheel_speeds = np.clip(raw_wheel_speeds, -1.0, 1.0)
-            
+
             #
             ### Smooth action. ###
             #
@@ -2320,7 +2333,7 @@ class CorridorEnv(gym.Env):
             self.physics.robot_wheels_speed[:] = target_speeds
             #
             self.previous_action = action
-        
+
         #
         ### Step physics. ###
         #
@@ -2341,7 +2354,6 @@ class CorridorEnv(gym.Env):
         ##
         obs = self.get_observation()
 
-        #
         ### Reward ###
         ### Progress reward (Relative to virtual pacer) ###
         ### Reward = x_pos - (0.01 * step) ###
@@ -2352,34 +2364,24 @@ class CorridorEnv(gym.Env):
         x_pos = self.data.xpos[robot_id][0]
         y_pos = self.data.xpos[robot_id][1]
         #
-        x_vel = self.data.cvel[robot_id][0]
+        ### MuJoCo cvel is 6D: [angular_vel_x, angular_vel_y, angular_vel_z, linear_vel_x, linear_vel_y, linear_vel_z]. ###
+        ### Index 3 = linear velocity in x direction (forward/backward). ###
+        #
+        x_vel = self.data.cvel[robot_id][3]
 
         #
-        reward = x_pos - (self.config.rewards.pacer_speed * self.current_step_count)
-
+        ### Choose reward type based on config. ###
         #
-        ### Velocity reward ###
-        #
-        # reward += x_vel / 100.0
-
-        #
-        ### Straight line penalty. ###
-        ### Penalize if staying in same Y radius for too long (> 15m). ###
-        #
-        # y_tolerance: float = 0.5
-        # if abs(y_pos - self.straight_y) < y_tolerance:
-        #     #
-        #     dist_straight: float = x_pos - self.straight_start_x
-        #     #
-        #     if dist_straight > self.config.rewards.straight_line_dist:
-        #         #
-        #         reward -= self.config.rewards.straight_line_penalty
-        # else:
-        #     #
-        #     ### Reset tracking if moved out of Y radius. ###
-        #     #
-        #     self.straight_start_x = x_pos
-        #     self.straight_y = y_pos
+        if self.config.rewards.use_velocity_reward:
+            #
+            ### Velocity-based reward: positive for forward, negative for backward. ###
+            #
+            reward = x_vel * self.config.rewards.velocity_reward_scale
+        else:
+            #
+            ### Original pacer-based reward. ###
+            #
+            reward = x_pos - (self.config.rewards.pacer_speed * self.current_step_count)
 
         #
         ### Done condition. ###
@@ -2419,12 +2421,9 @@ class CorridorEnv(gym.Env):
             reward += self.config.rewards.goal
 
         #
-        if reward < -10.0:
-            #
-            truncated = True
-
+        ### Scale reward using config value. ###
         #
-        reward *= 0.01
+        reward *= self.config.training.reward_scale
 
         #
         ### Termination bonuses (smaller to not overwhelm progress signal). ###
@@ -2486,7 +2485,19 @@ class CorridorEnv(gym.Env):
 class ActorCritic(nn.Module):
 
     #
-    def __init__(self, state_dim: int, action_dim: int, vision_shape: tuple[int, int], state_vector_dim: int = 13, action_std_init: float = 0.6, control_mode: str = "continuous_wheels") -> None:
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        vision_shape: tuple[int, int],
+        state_vector_dim: int = 13,
+        action_std_init: float = 0.5,
+        action_std_min: float = 0.01,
+        action_std_max: float = 1.0,
+        actor_hidden_gain: float = 1.414,
+        actor_output_gain: float = 0.01,
+        control_mode: str = "continuous_wheels"
+    ) -> None:
 
         #
         super(ActorCritic, self).__init__()
@@ -2494,12 +2505,15 @@ class ActorCritic(nn.Module):
         #
         self.action_dim = action_dim
         self.control_mode = control_mode
+        self.action_std_min = action_std_min
+        self.action_std_max = action_std_max
         #
         ### Use log_std for numerical stability (can't go negative). ###
+        ### Initialize with config value instead of 0. ###
         #
         if self.control_mode != "discrete_direction":
-            self.action_log_std = nn.Parameter(torch.zeros(action_dim))
-        
+            self.action_log_std = nn.Parameter(torch.full((action_dim,), log(action_std_init)))
+
         self.vision_shape = vision_shape
         self.state_vector_dim = state_vector_dim
         self.vision_size = vision_shape[0] * vision_shape[1]
@@ -2553,7 +2567,7 @@ class ActorCritic(nn.Module):
             nn.Tanh(),
             nn.Linear(64, action_dim)
         )
-        
+
         #
         ### For discrete, we use Softmax at the end? No, Categorical takes logits. ###
         ### But we used Tanh above which squashes to [-1, 1]. ###
@@ -2565,14 +2579,17 @@ class ActorCritic(nn.Module):
         #
 
         #
-        ### Initialize actor weights with orthogonal initialization (small gain). ###
+        ### Initialize actor weights with orthogonal initialization. ###
+        ### Use different gains for hidden layers vs output layer. ###
         #
-        for layer in self.actor:
+        actor_layers = [layer for layer in self.actor if isinstance(layer, nn.Linear)]
+        for i, layer in enumerate(actor_layers):
             #
-            if isinstance(layer, nn.Linear):
-                #
-                nn.init.orthogonal_(layer.weight, gain=0.01)
-                nn.init.constant_(layer.bias, 0.0)
+            is_output_layer = (i == len(actor_layers) - 1)
+            gain = actor_output_gain if is_output_layer else actor_hidden_gain
+            #
+            nn.init.orthogonal_(layer.weight, gain=gain)
+            nn.init.constant_(layer.bias, 0.0)
 
         #
         ### Critic Head. ###
@@ -2623,7 +2640,7 @@ class ActorCritic(nn.Module):
         ### Process input. ###
         #
         features = self._process_input(state)
-        
+
         #
         if self.control_mode == "discrete_direction":
             #
@@ -2636,7 +2653,7 @@ class ActorCritic(nn.Module):
             #
             action = dist.sample()
             action_logprob = dist.log_prob(action)
-            
+
         else:
             #
             action_mean = self.actor(features)
@@ -2644,7 +2661,7 @@ class ActorCritic(nn.Module):
             #
             ### Sample action using log_std. ###
             #
-            action_std = torch.exp(self.action_log_std).clamp(min=0.01, max=1.0).to(state.device)
+            action_std = torch.exp(self.action_log_std).clamp(min=self.action_std_min, max=self.action_std_max).to(state.device)
             dist = Normal(action_mean, action_std)
 
             #
@@ -2659,7 +2676,7 @@ class ActorCritic(nn.Module):
 
         #
         features = self._process_input(state)
-        
+
         #
         if self.control_mode == "discrete_direction":
             #
@@ -2673,19 +2690,19 @@ class ActorCritic(nn.Module):
             #
             action_logprobs = dist.log_prob(action.squeeze(-1) if action.ndim > 1 else action)
             dist_entropy = dist.entropy()
-            
+
         else:
             #
             action_mean = self.actor(features)
 
             #
-            action_std = torch.exp(self.action_log_std).clamp(min=0.01, max=1.0).to(state.device)
+            action_std = torch.exp(self.action_log_std).clamp(min=self.action_std_min, max=self.action_std_max).to(state.device)
             dist = Normal(action_mean, action_std)
 
             #
             action_logprobs = dist.log_prob(action).sum(axis=-1)
             dist_entropy = dist.entropy().sum(axis=-1)
-            
+
         state_values = self.critic(features)
 
         #
@@ -2706,6 +2723,14 @@ class PPOAgent:
         K_epochs: int = 4,
         eps_clip: float = 0.2,
         gae_lambda: float = 0.95,
+        entropy_coeff: float = 0.02,
+        value_loss_coeff: float = 0.5,
+        grad_clip_max_norm: float = 0.5,
+        action_std_init: float = 0.5,
+        action_std_min: float = 0.01,
+        action_std_max: float = 1.0,
+        actor_hidden_gain: float = 1.414,
+        actor_output_gain: float = 0.01,
         control_mode: str = "continuous_wheels"
     ) -> None:
 
@@ -2715,6 +2740,9 @@ class PPOAgent:
         self.K_epochs: int = K_epochs
         self.gae_lambda: float = gae_lambda
         self.control_mode: str = control_mode
+        self.entropy_coeff: float = entropy_coeff
+        self.value_loss_coeff: float = value_loss_coeff
+        self.grad_clip_max_norm: float = grad_clip_max_norm
 
         #
         ### Detect device. ###
@@ -2726,9 +2754,25 @@ class PPOAgent:
         #
         self.action_dim: int = action_dim
         #
-        self.policy: 'ActorCritic' = cast('ActorCritic', ActorCritic(state_dim, action_dim, vision_shape, control_mode=control_mode).float().to(self.device))
+        self.policy: 'ActorCritic' = cast('ActorCritic', ActorCritic(
+            state_dim, action_dim, vision_shape,
+            action_std_init=action_std_init,
+            action_std_min=action_std_min,
+            action_std_max=action_std_max,
+            actor_hidden_gain=actor_hidden_gain,
+            actor_output_gain=actor_output_gain,
+            control_mode=control_mode
+        ).float().to(self.device))
         self.optimizer: optim.Adam = optim.Adam(self.policy.parameters(), lr=lr)
-        self.policy_old: 'ActorCritic' = cast('ActorCritic', ActorCritic(state_dim, action_dim, vision_shape, control_mode=control_mode).float().to(self.device))
+        self.policy_old: 'ActorCritic' = cast('ActorCritic', ActorCritic(
+            state_dim, action_dim, vision_shape,
+            action_std_init=action_std_init,
+            action_std_min=action_std_min,
+            action_std_max=action_std_max,
+            actor_hidden_gain=actor_hidden_gain,
+            actor_output_gain=actor_output_gain,
+            control_mode=control_mode
+        ).float().to(self.device))
         self.policy_old.load_state_dict(self.policy.state_dict())
 
         #
@@ -2789,12 +2833,12 @@ class PPOAgent:
         ### (T * num_envs, ...). ###
         #
         old_states_flat = old_states.view(-1, self.policy.vision_size + self.policy.state_vector_dim)
-        
+
         if self.control_mode == "discrete_direction":
             old_actions_flat = old_actions.view(-1, 1)
         else:
             old_actions_flat = old_actions.view(-1, self.action_dim)
-            
+
         old_logprobs_flat = old_logprobs.view(-1)
 
         #
@@ -2912,8 +2956,13 @@ class PPOAgent:
 
             #
             ### Critic loss is MSE(Value, Returns). ###
+            ### Use config values for coefficients. ###
             #
-            loss: torch.Tensor = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, returns) - 0.01*dist_entropy
+            loss: torch.Tensor = (
+                -torch.min(surr1, surr2)
+                + self.value_loss_coeff * self.MseLoss(state_values, returns)
+                - self.entropy_coeff * dist_entropy
+            )
 
             #
             ### Optimize the policy. ###
@@ -2922,7 +2971,7 @@ class PPOAgent:
             #
             loss.mean().backward()
             #
-            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 0.5)
+            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.grad_clip_max_norm)
             #
             self.optimizer.step()
 
@@ -3309,7 +3358,23 @@ class Main:
             action_dim = 4
 
         #
-        agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip, gae_lambda=config.training.gae_lambda, control_mode=config.robot.control_mode)
+        agent = PPOAgent(
+            state_dim, action_dim, (vision_width, vision_height),
+            lr=config.training.learning_rate,
+            gamma=config.training.gamma,
+            K_epochs=config.training.k_epochs,
+            eps_clip=config.training.eps_clip,
+            gae_lambda=config.training.gae_lambda,
+            entropy_coeff=config.training.entropy_coeff,
+            value_loss_coeff=config.training.value_loss_coeff,
+            grad_clip_max_norm=config.training.grad_clip_max_norm,
+            action_std_init=config.training.action_std_init,
+            action_std_min=config.training.action_std_min,
+            action_std_max=config.training.action_std_max,
+            actor_hidden_gain=config.training.actor_hidden_gain,
+            actor_output_gain=config.training.actor_output_gain,
+            control_mode=config.robot.control_mode
+        )
         memory = Memory()
 
         #
@@ -3548,7 +3613,23 @@ class Main:
             action_dim = 2
         else:
             action_dim = 4
-        agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip, gae_lambda=config.training.gae_lambda, control_mode=config.robot.control_mode)
+        agent = PPOAgent(
+            state_dim, action_dim, (vision_width, vision_height),
+            lr=config.training.learning_rate,
+            gamma=config.training.gamma,
+            K_epochs=config.training.k_epochs,
+            eps_clip=config.training.eps_clip,
+            gae_lambda=config.training.gae_lambda,
+            entropy_coeff=config.training.entropy_coeff,
+            value_loss_coeff=config.training.value_loss_coeff,
+            grad_clip_max_norm=config.training.grad_clip_max_norm,
+            action_std_init=config.training.action_std_init,
+            action_std_min=config.training.action_std_min,
+            action_std_max=config.training.action_std_max,
+            actor_hidden_gain=config.training.actor_hidden_gain,
+            actor_output_gain=config.training.actor_output_gain,
+            control_mode=config.robot.control_mode
+        )
 
         #
         try:
@@ -3685,7 +3766,7 @@ class Main:
                 #
                 target_speeds: NDArray[np.float64] = np.zeros(4, dtype=np.float64)
                 max_speed = 500.0
-                
+
                 if config.robot.control_mode == "discrete_direction":
                     #
                     ### Discrete actions. ###
@@ -3706,9 +3787,9 @@ class Main:
                         target_speeds[1] = -max_speed
                         target_speeds[2] = max_speed
                         target_speeds[3] = -max_speed
-                    
+
                     physics.robot_wheels_speed[:] = target_speeds
-                    
+
                     #
                     ### Update previous action for state. ###
                     #
@@ -3737,7 +3818,7 @@ class Main:
                     ### Clip to range. ###
                     #
                     raw_wheel_speeds = np.clip(raw_wheel_speeds, -1.0, 1.0)
-                    
+
                     target_speeds = raw_wheel_speeds * max_speed
                     physics.robot_wheels_speed[:] = target_speeds
                     #
