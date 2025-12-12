@@ -88,11 +88,12 @@ class TrainingConfig:
     max_episodes: int = 1000
     model_path: str = "ppo_robot_corridor.pth"
     load_weights_from: Optional[str] = None
-    learning_rate: float = 0.002
+    learning_rate: float = 0.02
     gamma: float = 0.99
     k_epochs: int = 4
     eps_clip: float = 0.2
     update_timestep: int = 4000
+    gae_lambda: float = 0.95
 
 @dataclass
 class SimConfig:
@@ -2268,13 +2269,15 @@ class PPOAgent:
         lr: float = 0.02,
         gamma: float = 0.99,
         K_epochs: int = 4,
-        eps_clip: float = 0.2
+        eps_clip: float = 0.2,
+        gae_lambda: float = 0.95
     ) -> None:
 
         #
         self.gamma: float = gamma
         self.eps_clip: float = eps_clip
         self.K_epochs: int = K_epochs
+        self.gae_lambda: float = gae_lambda
         
         #
         ### Detect device. ###
@@ -2320,53 +2323,79 @@ class PPOAgent:
         return action, action_logprob
         
     #
-    def update(self, memory: 'Memory') -> None:
+    def update(self, memory: 'Memory', next_state: np.ndarray, next_done: np.ndarray) -> None:
 
         #
-        ### Convert list to tensor. ###
+        ### GAE (Generalized Advantage Estimation) ###
         #
-        rewards: List[np.ndarray] = []
-        discounted_reward: Union[int, np.ndarray] = 0
         
-        # memory.rewards: list of (num_envs,)
-        # memory.is_terminals: list of (num_envs,)
+        # 1. Convert memory to tensors
+        old_states = torch.stack(memory.states).to(self.device).detach()
+        old_actions = torch.stack(memory.actions).to(self.device).detach()
+        old_logprobs = torch.tensor(np.array(memory.logprobs), dtype=torch.float32).to(self.device).detach()
         
-        #
-        ### Initialize discounted_reward as zeros with shape of a single reward entry. ###
-        #
-        if len(memory.rewards) > 0:
-            #
-            discounted_reward = np.zeros_like(memory.rewards[0])
+        # Flattened versions for training later
+        # (T * num_envs, ...)
+        old_states_flat = old_states.view(-1, self.policy.vision_size + self.policy.state_vector_dim)
+        old_actions_flat = old_actions.view(-1, self.action_dim)
+        old_logprobs_flat = old_logprobs.view(-1)
+        
+        # 2. Get values for all states
+        # We process in batches to avoid OOM if needed, but for simplicity we do full batch now
+        # shape: (T, num_envs, 1)
+        with torch.no_grad():
+            # Get values of all current states
+            values = self.policy.critic(self.policy._process_input(old_states_flat)).view(len(memory.states), -1)
             
-        #
-        for reward, is_terminal in zip(reversed(memory.rewards), reversed(memory.is_terminals)):
-
-            #
-            ### is_terminal is boolean array, convert to float for masking. ###
-            #
-            mask: np.ndarray = 1.0 - is_terminal.astype(np.float32)
-            discounted_reward: np.ndarray = reward + (self.gamma * discounted_reward * mask)
-            rewards.insert(0, discounted_reward)
+            # Get value of next state (bootstrapping)
+            next_state_tensor = torch.FloatTensor(next_state).to(self.device)
+            if next_state.ndim == 1:
+                next_state_tensor = next_state_tensor.unsqueeze(0)
+            next_value = self.policy.critic(self.policy._process_input(next_state_tensor))
             
-        #
-        ### Flatten the batch and time dimensions. ###
-        #
-        rewards_tensor: torch.Tensor = torch.tensor(np.array(rewards), dtype=torch.float32).to(self.device)
-        rewards_tensor = rewards_tensor.view(-1)
-        rewards_tensor = (rewards_tensor - rewards_tensor.mean()) / (rewards_tensor.std() + 1e-7)
+        # 3. Calculate GAE Advantages
+        # rewards shape: list of (num_envs,)
+        # is_terminals shape: list of (num_envs,)
+        
+        rewards = np.array(memory.rewards)      # (T, num_envs)
+        is_terminals = np.array(memory.is_terminals) # (T, num_envs)
+        
+        # Convert to tensor for GAE calculation
+        rewards_t = torch.tensor(rewards, dtype=torch.float32).to(self.device)
+        is_terminals_t = torch.tensor(is_terminals, dtype=torch.float32).to(self.device)
+        next_done_t = torch.tensor(next_done, dtype=torch.float32).to(self.device) # (num_envs,)
+        
+        returns = torch.zeros_like(rewards_t).to(self.device)
+        advantages = torch.zeros_like(rewards_t).to(self.device)
+        
+        gae = 0
+        
+        num_steps = len(memory.rewards)
+        
+        for t in range(num_steps - 1, -1, -1):
+            
+            # If it is the last step
+            if t == num_steps - 1:
+                next_non_terminal = 1.0 - next_done_t
+                next_val = next_value.squeeze()
+            else:
+                next_non_terminal = 1.0 - is_terminals_t[t + 1]
+                next_val = values[t + 1].squeeze()
+                
+            delta = rewards_t[t] + self.gamma * next_val * next_non_terminal - values[t].squeeze()
+            gae = delta + self.gamma * self.gae_lambda * next_non_terminal * gae
+            
+            advantages[t] = gae
+            returns[t] = advantages[t] + values[t].squeeze() # Return = Advantage + Value
+            
+        # Flatten for training
+        returns = returns.view(-1)
+        advantages = advantages.view(-1)
         
         #
-        ### Stack and move to device, then flatten ###
-        ### states: list of (num_envs, state_dim) -> (T, num_envs, state_dim) -> (T*num_envs, state_dim) ###
+        ### Normalize Advantages (Crucial for PPO stability) ###
         #
-        old_states: torch.Tensor = torch.stack(memory.states).to(self.device).detach().view(-1, self.policy.vision_size + self.policy.state_vector_dim)
-        old_actions: torch.Tensor = torch.stack(memory.actions).to(self.device).detach().view(-1, self.action_dim)
-        
-        #
-        ### logprobs: list of (num_envs,) -> (T, num_envs) -> (T*num_envs) ###
-        ### They were stored as numpy arrays, so convert to tensor first ###
-        #
-        old_logprobs: torch.Tensor = torch.tensor(np.array(memory.logprobs), dtype=torch.float32).to(self.device).view(-1)
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         
         #
         ### Optimize policy for K epochs. ###
@@ -2378,23 +2407,22 @@ class PPOAgent:
             state_values: torch.Tensor
             dist_entropy: torch.Tensor
             #
-            logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
+            logprobs, state_values, dist_entropy = self.policy.evaluate(old_states_flat, old_actions_flat)
             
             #
             state_values = torch.squeeze(state_values)
             
             #
-            ratios: torch.Tensor = torch.exp(logprobs - old_logprobs)
+            ratios: torch.Tensor = torch.exp(logprobs - old_logprobs_flat)
             
             #
-            advantages: torch.Tensor = rewards_tensor - state_values.detach()
-            
-            #
+            # Use GAE Advantages here
             surr1: torch.Tensor = ratios * advantages
             surr2: torch.Tensor = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
             
             #
-            loss: torch.Tensor = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, rewards_tensor) - 0.01*dist_entropy
+            # Critic loss is MSE(Value, Returns)
+            loss: torch.Tensor = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, returns) - 0.01*dist_entropy
             
             #
             self.optimizer.zero_grad()
@@ -2780,7 +2808,7 @@ class Main:
         action_dim = 4
         
         #
-        agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip)
+        agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip, gae_lambda=config.training.gae_lambda)
         memory = Memory()
         
         #
@@ -2900,7 +2928,8 @@ class Main:
             #
             ### Update PPO. ###
             #
-            agent.update(memory)
+            # PASS CURRENT STATE (which is next_state of the last step) AND DONE FLAGS FOR BOOTSTRAPPING
+            agent.update(memory, state, done)
             memory.clear_memory()
             time_step = 0
             
@@ -2994,7 +3023,7 @@ class Main:
         state_dim = vision_size + 13
         #
         action_dim = 4
-        agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip)
+        agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip, gae_lambda=config.training.gae_lambda)
         
         #
         try:
