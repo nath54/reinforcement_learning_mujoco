@@ -43,8 +43,25 @@ import multiprocessing as mp
 from multiprocessing import Process, Pipe
 import gymnasium as gym
 from gymnasium import spaces
+import cv2
 
 
+
+def quaternion_to_euler(x, y, z, w):
+    t0 = +2.0 * (w * x + y * z)
+    t1 = +1.0 - 2.0 * (x * x + y * y)
+    roll_x = np.arctan2(t0, t1)
+    
+    t2 = +2.0 * (w * y - z * x)
+    t2 = +1.0 if t2 > +1.0 else t2
+    t2 = -1.0 if t2 < -1.0 else t2
+    pitch_y = np.arcsin(t2)
+    
+    t3 = +2.0 * (w * z + x * y)
+    t4 = +1.0 - 2.0 * (y * y + z * z)
+    yaw_z = np.arctan2(t3, t4)
+    
+    return Vec3(roll_x, pitch_y, yaw_z)
 
 @dataclass
 class SimulationConfig:
@@ -56,7 +73,7 @@ class SimulationConfig:
 
 @dataclass
 class RobotConfig:
-    xml_path: str = "four_wheels_robot.xml"
+    xml_path: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "four_wheels_robot.xml")
 
 @dataclass
 class RewardConfig:
@@ -119,29 +136,37 @@ def worker(remote: Any, parent_remote: Any, env_fn_wrapper: Any) -> None:
         parent_remote.close()
         return
     while True:
-        cmd: str
-        data: Any
-        cmd, data = remote.recv()
-        if cmd == 'step':
-            ob: Any
-            reward: float
-            terminated: bool
-            truncated: bool
-            info: dict[str, Any]
-            ob, reward, terminated, truncated, info = env.step(data)
-            if terminated or truncated:
-                ob, _ = env.reset()
-            remote.send((ob, reward, terminated, truncated, info))
-        elif cmd == 'reset':
-            ob, info = env.reset()
-            remote.send(ob)
-        elif cmd == 'close':
-            remote.close()
+        try:
+            cmd: str
+            data: Any
+            cmd, data = remote.recv()
+            if cmd == 'step':
+                ob: Any
+                reward: float
+                terminated: bool
+                truncated: bool
+                info: dict[str, Any]
+                ob, reward, terminated, truncated, info = env.step(data)
+                if terminated or truncated:
+                    ob, _ = env.reset()
+                remote.send((ob, reward, terminated, truncated, info))
+            elif cmd == 'reset':
+                ob, info = env.reset()
+                remote.send(ob)
+            elif cmd == 'close':
+                remote.close()
+                break
+            elif cmd == 'get_spaces':
+                remote.send((env.observation_space, env.action_space))
+            else:
+                raise NotImplementedError
+        except Exception as e:
+            print(f"Worker error: {e}")
+            import traceback
+            traceback.print_exc()
+            import sys
+            sys.stdout.flush()
             break
-        elif cmd == 'get_spaces':
-            remote.send((env.observation_space, env.action_space))
-        else:
-            raise NotImplementedError
 
 
 
@@ -354,7 +379,7 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
         robot_pos: Vec3,
         robot_rot: Vec3,
         robot_speed: Vec3,
-        robot_acceleration: Vec3,
+        previous_action: NDArray[np.float64],
         robot_view_range: float,
     ) -> NDArray[np.float64]:
 
@@ -423,7 +448,7 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
             robot_pos.x, robot_pos.y, robot_pos.z,
             robot_rot.x, robot_rot.y, robot_rot.z,
             robot_speed.x, robot_speed.y, robot_speed.z,
-            robot_acceleration.x, robot_acceleration.y, robot_acceleration.z
+            previous_action[0], previous_action[1], previous_action[2], previous_action[3]
         ], dtype=np.float64)
 
         return np.concatenate((vision_matrix.flatten(), state_vector))
@@ -1907,7 +1932,7 @@ class CorridorEnv(gym.Env):
         vision_width = 2 * view_range_grid
         vision_height = 2 * view_range_grid
         self.vision_size = vision_width * vision_height
-        self.state_dim = self.vision_size + 12 # 12 for state vector
+        self.state_dim = self.vision_size + 13 # 13 for state vector
         
         #
         self.observation_space = spaces.Box(
@@ -1922,6 +1947,9 @@ class CorridorEnv(gym.Env):
         #
         self.straight_start_x: float = 0.0
         self.straight_y: float = 0.0
+        
+        #
+        self.previous_action = np.zeros(4, dtype=np.float64)
 
     #
     def set_collision_system(self, collision_system: EfficientCollisionSystemBetweenEnvAndAgent):
@@ -1960,6 +1988,9 @@ class CorridorEnv(gym.Env):
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
         self.straight_start_x = self.data.xpos[robot_id][0]
         self.straight_y = self.data.xpos[robot_id][1]
+        
+        #
+        self.previous_action = np.zeros(4, dtype=np.float64)
 
         return self.get_observation(), {}
 
@@ -1988,6 +2019,11 @@ class CorridorEnv(gym.Env):
         #
         self.physics.apply_additionnal_physics()
         mujoco.mj_step(self.model, self.data)
+        
+        #
+        ### Update previous action. ###
+        #
+        self.previous_action = action
         
         #
         ### Observation. ##
@@ -2105,125 +2141,118 @@ class CorridorEnv(gym.Env):
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
         #
         pos = Vec3(self.data.xpos[robot_id][0], self.data.xpos[robot_id][1], self.data.xpos[robot_id][2])
-
-        # Rotation is quaternion, convert to euler or just use forward vector?
-        # The `get_robot_vision_and_state` expects Vec3 for rot.
-        # Let's just pass zero for now or convert if needed. 
-        # Actually `EfficientCollisionSystem` expects `Vec3`.
-        # Let's use xquat to get orientation.
-
-        #
-        rot = Vec3(0,0,0) # Placeholder
         
-        #
+        # Get rotation from quaternion
+        quat = self.data.xquat[robot_id]
+        rot = quaternion_to_euler(quat[1], quat[2], quat[3], quat[0]) # Mujoco quat is w, x, y, z
+        
         vel = Vec3(self.data.cvel[robot_id][0], self.data.cvel[robot_id][1], self.data.cvel[robot_id][2])
-        acc = Vec3(self.data.cacc[robot_id][0], self.data.cacc[robot_id][1], self.data.cacc[robot_id][2])
-        
+        # acc = Vec3(self.data.cacc[robot_id][0], self.data.cacc[robot_id][1], self.data.cacc[robot_id][2])
+
         #
-        return self.collision_system.get_robot_vision_and_state(
-            pos, rot, vel, acc, robot_view_range=self.config.simulation.robot_view_range
-        )
+        return self.collision_system.get_robot_vision_and_state(pos, rot, vel, self.previous_action, robot_view_range=self.config.simulation.robot_view_range)
 
 
 #
 class ActorCritic(nn.Module):
-
-    #
-    def __init__(self, state_dim: int, action_dim: int, action_std_init: float = 0.6) -> None:
-
-        #
+    def __init__(self, state_dim: int, action_dim: int, vision_shape: tuple[int, int], state_vector_dim: int = 13, action_std_init: float = 0.6) -> None:
         super(ActorCritic, self).__init__()
 
-        #
-        self.action_dim: int = action_dim
-        self.action_var: torch.Tensor = torch.full((action_dim,), action_std_init * action_std_init)
-        
-        #
-        ### Actor. ###
-        #
-        self.actor: nn.Sequential = nn.Sequential(
-            nn.Linear(state_dim, 64),
-            nn.Tanh(),
-            nn.Linear(64, 128),
-            nn.Tanh(),
-            nn.Linear(128, 256),
+        self.action_dim = action_dim
+        self.action_var = torch.full((action_dim,), action_std_init * action_std_init)
+        self.vision_shape = vision_shape
+        self.state_vector_dim = state_vector_dim
+        self.vision_size = vision_shape[0] * vision_shape[1]
+
+        # CNN for Vision
+        self.cnn = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Flatten()
+        )
+
+        # Calculate CNN output size
+        with torch.no_grad():
+            dummy_input = torch.zeros(1, 1, vision_shape[0], vision_shape[1])
+            cnn_out_size = self.cnn(dummy_input).shape[1]
+
+        # Encoder for State Vector
+        self.state_encoder = nn.Sequential(
+            nn.Linear(state_vector_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU()
+        )
+
+        # Fusion Dimension
+        fusion_dim = cnn_out_size + 64
+
+        # Actor Head
+        self.actor = nn.Sequential(
+            nn.Linear(fusion_dim, 256),
             nn.Tanh(),
             nn.Linear(256, 64),
             nn.Tanh(),
             nn.Linear(64, action_dim),
-            nn.Tanh() # Output -1 to 1
+            nn.Tanh()
         )
-        
-        #
-        ### Critic. ###
-        #
-        self.critic: nn.Sequential = nn.Sequential(
-            nn.Linear(state_dim, 64),
-            nn.Tanh(),
-            nn.Linear(64, 128),
-            nn.Tanh(),
-            nn.Linear(128, 256),
+
+        # Critic Head
+        self.critic = nn.Sequential(
+            nn.Linear(fusion_dim, 256),
             nn.Tanh(),
             nn.Linear(256, 64),
             nn.Tanh(),
             nn.Linear(64, 1)
         )
-        
-    #
-    def forward(self) -> None:
-        #
+
+    def forward(self):
         raise NotImplementedError
-    
-    #
+
+    def _process_input(self, state: torch.Tensor):
+        # Split input into vision and state vector
+        # state shape: (batch_size, vision_size + state_vector_dim)
+        
+        vision_flat = state[:, :self.vision_size]
+        state_vec = state[:, self.vision_size:]
+
+        # Reshape vision to (batch_size, 1, height, width)
+        vision_img = vision_flat.view(-1, 1, self.vision_shape[0], self.vision_shape[1])
+
+        # Encode
+        vision_features = self.cnn(vision_img)
+        state_features = self.state_encoder(state_vec)
+
+        # Fuse
+        return torch.cat((vision_features, state_features), dim=1)
+
     def act(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-
-        #
-        action_mean: torch.Tensor = self.actor(state)
-
-        #
-        # cov_mat = torch.diag(self.action_var).to(state.device)
-        # dist = Normal(action_mean, self.action_var.to(state.device)) # Simplified std
+        features = self._process_input(state)
+        action_mean = self.actor(features)
         
-        # For simplicity in this basic version, we use fixed std dev
-        # Better PPO uses learnable std.
-        # Let's use a simple Normal distribution
-        # Use action_var as std deviation, which can be annealed/learned if we updated it
-        # Here we use the initialized self.action_var which is 0.6*0.6 = 0.36 variance -> 0.6 std
-        # Actually in init we set action_var to action_std_init^2. 
-        # But for Normal distribution in PyTorch `scale` is standard deviation.
-        # So we should pass sqrt(action_var) or just keep a separate std parameter.
+        action_std = torch.sqrt(self.action_var).to(state.device)
+        dist = Normal(action_mean, action_std)
         
-        # Simplified: Use fixed std that decays or is just larger to start with.
-        # Let's use the one passed in init (0.6)
-        #
-        action_std: torch.Tensor = torch.sqrt(self.action_var).to(state.device)
-        dist: Normal = Normal(action_mean, action_std)
+        action = dist.sample()
+        action_logprob = dist.log_prob(action).sum(axis=-1)
         
-        #
-        action: torch.Tensor = dist.sample()
-        action_logprob: torch.Tensor = dist.log_prob(action).sum(axis=-1)
-        
-        #
         return action.detach(), action_logprob.detach()
     
-    #
     def evaluate(self, state: torch.Tensor, action: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-
-        #
-        action_mean: torch.Tensor = self.actor(state)
-
-        #        
-        ### Use same std as act. ###
-        #
-        action_std: torch.Tensor = torch.sqrt(self.action_var).to(state.device)
-        dist: Normal = Normal(action_mean, action_std)
+        features = self._process_input(state)
+        action_mean = self.actor(features)
         
-        #
-        action_logprobs: torch.Tensor = dist.log_prob(action).sum(axis=-1)
-        dist_entropy: torch.Tensor = dist.entropy().sum(axis=-1)
-        state_values: torch.Tensor = self.critic(state)
+        action_std = torch.sqrt(self.action_var).to(state.device)
+        dist = Normal(action_mean, action_std)
         
-        #
+        action_logprobs = dist.log_prob(action).sum(axis=-1)
+        dist_entropy = dist.entropy().sum(axis=-1)
+        state_values = self.critic(features)
+        
         return action_logprobs, state_values, dist_entropy
 
 
@@ -2235,6 +2264,7 @@ class PPOAgent:
         self,
         state_dim: int,
         action_dim: int,
+        vision_shape: tuple[int, int],
         lr: float = 0.02,
         gamma: float = 0.99,
         K_epochs: int = 4,
@@ -2256,9 +2286,9 @@ class PPOAgent:
         #
         self.action_dim: int = action_dim
         #
-        self.policy: 'ActorCritic' = cast('ActorCritic', ActorCritic(state_dim, action_dim).float().to(self.device))
+        self.policy: 'ActorCritic' = cast('ActorCritic', ActorCritic(state_dim, action_dim, vision_shape).float().to(self.device))
         self.optimizer: optim.Adam = optim.Adam(self.policy.parameters(), lr=lr)
-        self.policy_old: 'ActorCritic' = cast('ActorCritic', ActorCritic(state_dim, action_dim).float().to(self.device))
+        self.policy_old: 'ActorCritic' = cast('ActorCritic', ActorCritic(state_dim, action_dim, vision_shape).float().to(self.device))
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         #
@@ -2316,7 +2346,7 @@ class PPOAgent:
         ### Stack and move to device, then flatten ###
         ### states: list of (num_envs, state_dim) -> (T, num_envs, state_dim) -> (T*num_envs, state_dim) ###
         #
-        old_states: torch.Tensor = torch.stack(memory.states).to(self.device).detach().view(-1, self.policy.actor[0].in_features)
+        old_states: torch.Tensor = torch.stack(memory.states).to(self.device).detach().view(-1, self.policy.vision_size + self.policy.state_vector_dim)
         old_actions: torch.Tensor = torch.stack(memory.actions).to(self.device).detach().view(-1, self.action_dim)
         
         #
@@ -2732,12 +2762,12 @@ class Main:
         vision_width = 2 * view_range_grid
         vision_height = 2 * view_range_grid
         vision_size = vision_width * vision_height
-        state_dim = vision_size + 12
+        state_dim = vision_size + 13
         #
         action_dim = 4
         
         #
-        agent = PPOAgent(state_dim, action_dim, lr, gamma, K_epochs, eps_clip)
+        agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip)
         memory = Memory()
         
         #
@@ -2916,7 +2946,7 @@ class Main:
                 
     #
     @staticmethod
-    def play(config: SimConfig = SimConfig(), model_path: Optional[str] = None):
+    def play(config: SimConfig = SimConfig(), model_path: Optional[str] = None, live_vision: bool = False):
 
         #
         path = model_path if model_path else config.training.model_path
@@ -2948,10 +2978,10 @@ class Main:
         vision_width = 2 * view_range_grid
         vision_height = 2 * view_range_grid
         vision_size = vision_width * vision_height
-        state_dim = vision_size + 12
+        state_dim = vision_size + 13
         #
         action_dim = 4
-        agent = PPOAgent(state_dim, action_dim)
+        agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip)
         
         #
         try:
@@ -2988,7 +3018,7 @@ class Main:
         vision_width = 2 * view_range_grid
         vision_height = 2 * view_range_grid
         vision_size = vision_width * vision_height
-        state_dim = vision_size + 12 # 12 for state vector
+        state_dim = vision_size + 13 # 13 for state vector
         
         #
         observation_space = spaces.Box(
@@ -2998,18 +3028,22 @@ class Main:
         #
         ### Helper to get observation. ###
         #
-        def get_observation():
+        def get_observation(previous_action):
 
             #
             robot_id = mujoco.mj_name2id(root_scene.mujoco_model, mujoco.mjtObj.mjOBJ_BODY, "robot")
             #
             pos = Vec3(root_scene.mujoco_data.xpos[robot_id][0], root_scene.mujoco_data.xpos[robot_id][1], root_scene.mujoco_data.xpos[robot_id][2])
-            rot = Vec3(0,0,0)
+            
+            # Get rotation from quaternion
+            quat = root_scene.mujoco_data.xquat[robot_id]
+            rot = quaternion_to_euler(quat[1], quat[2], quat[3], quat[0]) # Mujoco quat is w, x, y, z
+            
             vel = Vec3(root_scene.mujoco_data.cvel[robot_id][0], root_scene.mujoco_data.cvel[robot_id][1], root_scene.mujoco_data.cvel[robot_id][2])
-            acc = Vec3(root_scene.mujoco_data.cacc[robot_id][0], root_scene.mujoco_data.cacc[robot_id][1], root_scene.mujoco_data.cacc[robot_id][2])
+            # acc = Vec3(root_scene.mujoco_data.cacc[robot_id][0], root_scene.mujoco_data.cacc[robot_id][1], root_scene.mujoco_data.cacc[robot_id][2])
 
             #
-            return collision_system.get_robot_vision_and_state(pos, rot, vel, acc, robot_view_range=config.simulation.robot_view_range)
+            return collision_system.get_robot_vision_and_state(pos, rot, vel, previous_action, robot_view_range=config.simulation.robot_view_range)
 
         #
         ### Launch viewer. ###
@@ -3038,22 +3072,26 @@ class Main:
             root_scene.mujoco_data.xpos[robot_id][2] = 0.2
             
             #
+            previous_action = np.zeros(4, dtype=np.float64)
+            
+            #
             while viewer_instance.is_running() and not state_obj.controls.quit_requested:
 
                 #   
                 ### Get observation. ###
                 #
-                obs = get_observation()
+                obs = get_observation(previous_action)
                 
                 #
                 ### Get action from agent. ###
                 #
-                action, _ = agent.select_action(obs)
+                action, log_prob = agent.select_action(obs)
                 
                 #
                 ### Apply action. ###
                 #
                 action = np.clip(action, -1.0, 1.0)
+                previous_action = action # Update previous action
                 max_speed = 200.0
                 target_speeds = action * max_speed
                 physics.robot_wheels_speed[:] = target_speeds
@@ -3062,6 +3100,40 @@ class Main:
                 ### Step. ###
                 #
                 state_obj = Main.state_step(state_obj)
+
+                if live_vision:
+                    # Extract vision
+                    vision_data = obs[:vision_size]
+                    vision_img = vision_data.reshape((vision_width, vision_height))
+                    
+                    # Normalize for display
+                    vision_display = cv2.normalize(vision_img, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                    
+                    # Resize
+                    scale = 10
+                    vision_display = cv2.resize(vision_display, (vision_height * scale, vision_width * scale), interpolation=cv2.INTER_NEAREST)
+                    
+                    # Convert to BGR for colored text
+                    vision_display = cv2.cvtColor(vision_display, cv2.COLOR_GRAY2BGR)
+                    
+                    # Extract state
+                    state_vec = obs[vision_size:]
+                    
+                    info_text = [
+                        f"Pos: {state_vec[0]:.2f}, {state_vec[1]:.2f}, {state_vec[2]:.2f}",
+                        f"Rot: {state_vec[3]:.2f}, {state_vec[4]:.2f}, {state_vec[5]:.2f}",
+                        f"Spd: {state_vec[6]:.2f}, {state_vec[7]:.2f}, {state_vec[8]:.2f}",
+                        f"Prv: {state_vec[9]:.2f}, {state_vec[10]:.2f}, {state_vec[11]:.2f}, {state_vec[12]:.2f}"
+                    ]
+                    
+                    for idx, text in enumerate(info_text):
+                        cv2.putText(vision_display, text, (10, 20 + idx * 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                        
+                    cv2.imshow("Robot Vision & State", vision_display)
+                    cv2.waitKey(1)
+
+            if live_vision:
+                cv2.destroyAllWindows()
 
 
 #
@@ -3074,6 +3146,7 @@ if __name__ == "__main__":
     parser.add_argument('--render_video', action="store_true", default=False)
     parser.add_argument('--train', action="store_true", default=False, help="Train the RL agent")
     parser.add_argument('--play', action="store_true", default=False, help="Play with trained model")
+    parser.add_argument('--live_vision', action="store_true", default=False, help="Show live vision window")
     parser.add_argument('--model_path', type=str, default="ppo_robot_corridor.pth", help="Path to model file")
     parser.add_argument('--episodes', type=int, default=1000, help="Number of episodes/updates to train")
     parser.add_argument('--update_timestep', type=int, default=4000, help="Timesteps per update")
@@ -3107,7 +3180,7 @@ if __name__ == "__main__":
     #
     elif args.play:
         #
-        Main.play(config=config, model_path=args.model_path)
+        Main.play(config=config, model_path=args.model_path, live_vision=args.live_vision)
     #
     elif args.render_video:
         #
