@@ -47,44 +47,59 @@ import cv2
 
 
 
-def quaternion_to_euler(x, y, z, w):
-    t0 = +2.0 * (w * x + y * z)
-    t1 = +1.0 - 2.0 * (x * x + y * y)
-    roll_x = np.arctan2(t0, t1)
+#
+def quaternion_to_euler(x: float, y: float, z: float, w: float) -> Vec3:
 
-    t2 = +2.0 * (w * y - z * x)
+    #
+    t0: float = +2.0 * (w * x + y * z)
+    t1: float = +1.0 - 2.0 * (x * x + y * y)
+    roll_x: float = np.arctan2(t0, t1)
+
+    #
+    t2: float = +2.0 * (w * y - z * x)
     t2 = +1.0 if t2 > +1.0 else t2
     t2 = -1.0 if t2 < -1.0 else t2
-    pitch_y = np.arcsin(t2)
+    pitch_y: float = np.arcsin(t2)
 
-    t3 = +2.0 * (w * z + x * y)
-    t4 = +1.0 - 2.0 * (y * y + z * z)
-    yaw_z = np.arctan2(t3, t4)
+    #
+    t3: float = +2.0 * (w * z + x * y)
+    t4: float = +1.0 - 2.0 * (y * y + z * z)
+    yaw_z: float = np.arctan2(t3, t4)
 
+    #
     return Vec3(roll_x, pitch_y, yaw_z)
 
+
+#
 @dataclass
 class SimulationConfig:
+    #
     corridor_length: float = 100.0
     corridor_width: float = 3.0
     robot_view_range: float = 3.0
     max_steps: int = 2000
     env_precision: float = 0.1
 
+#
 @dataclass
 class RobotConfig:
+    #
     xml_path: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "four_wheels_robot.xml")
 
+#
 @dataclass
 class RewardConfig:
+    #
     goal: float = 100.0
     collision: float = -0.05
     straight_line_penalty: float = 0.5
     straight_line_dist: float = 15.0
     pacer_speed: float = 0.01
 
+#
 @dataclass
 class TrainingConfig:
+    #
     agent_type: str = "ppo"
     max_episodes: int = 1000
     model_path: str = "ppo_robot_corridor.pth"
@@ -96,131 +111,249 @@ class TrainingConfig:
     update_timestep: int = 4000
     gae_lambda: float = 0.95
 
+#
 @dataclass
 class SimConfig:
+    #
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
     robot: RobotConfig = field(default_factory=RobotConfig)
     rewards: RewardConfig = field(default_factory=RewardConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
 
+    #
     @staticmethod
     def load(path: str) -> "SimConfig":
+        #
         if not os.path.exists(path):
+            #
             print(f"Config file {path} not found, using defaults.")
+            #
             return SimConfig()
+
+        #
         with open(path, 'r') as f:
+
+            #
             try:
+
+                #
                 data = yaml.safe_load(f)
-                # Handle nested loading
+                #
+                ### Handle nested loading. ###
+                #
                 sim_config = SimulationConfig(**data.get('simulation', {}))
                 robot_config = RobotConfig(**data.get('robot', {}))
                 reward_config = RewardConfig(**data.get('rewards', {}))
                 train_config = TrainingConfig(**data.get('training', {}))
+
+                #
                 return SimConfig(
                     simulation=sim_config,
                     robot=robot_config,
                     rewards=reward_config,
                     training=train_config
                 )
+
+            #
             except Exception as e:
+                #
                 print(f"Error loading config: {e}, using defaults.")
+                #
                 return SimConfig()
 
 
+#
 def worker(remote: Any, parent_remote: Any, env_fn_wrapper: Any) -> None:
+
+    #
     parent_remote.close()
+
+    #
     try:
+        #
         env: CorridorEnv = env_fn_wrapper()
+
+    #
     except Exception as e:
+        #
         print(f"Worker initialization failed: {e}")
+        #
         import traceback
+        #
         traceback.print_exc()
+        #
         parent_remote.close()
+        #
         return
+
+    #
     while True:
+
+        #
         try:
+
+            #
             cmd: str
             data: Any
+            #
             cmd, data = remote.recv()
+
+            #
             if cmd == 'step':
+                #
                 ob: Any
                 reward: float
                 terminated: bool
                 truncated: bool
                 info: dict[str, Any]
+                #
                 ob, reward, terminated, truncated, info = env.step(data)
+                #
                 if terminated or truncated:
+                    #
                     ob, _ = env.reset()
+                #
                 remote.send((ob, reward, terminated, truncated, info))
+
+            #
             elif cmd == 'reset':
+                #
                 ob, info = env.reset()
+                #
                 remote.send(ob)
+
+            #
             elif cmd == 'close':
+                #
                 remote.close()
+                #
                 break
+
+            #
             elif cmd == 'get_spaces':
+                #
                 remote.send((env.observation_space, env.action_space))
+
+            #
             else:
+                #
                 raise NotImplementedError
+
+        #
         except Exception as e:
+            #
             print(f"Worker error: {e}")
+            #
             import traceback
+            #
             traceback.print_exc()
+            #
             import sys
+            #
             sys.stdout.flush()
+            #
             break
 
 
-
+#
 class SubprocVecEnv:
+
+    #
     def __init__(self, env_fns: list[Any]) -> None:
         """
         envs: list of gym environments to run in subprocesses
         """
+
+        #
         self.waiting: bool = False
         self.closed: bool = False
+        #
         nenvs: int = len(env_fns)
+        #
         self.remotes: list[Any]
         self.work_remotes: list[Any]
+        #
         self.remotes, self.work_remotes = zip(*[Pipe() for _ in range(nenvs)])
-        self.ps: list[Process] = [Process(target=worker, args=(work_remote, remote, env_fn))
-            for (work_remote, remote, env_fn) in zip(self.work_remotes, self.remotes, env_fns)]
+
+        #
+        self.ps: list[Process] = [
+            Process(target=worker, args=(work_remote, remote, env_fn))
+            for (work_remote, remote, env_fn) in zip(self.work_remotes, self.remotes, env_fns)
+        ]
+
+        #
         for p in self.ps:
+            #
             p.daemon = True # if the main process crashes, we should not cause things to hang
             p.start()
+
+        #
         for remote in self.work_remotes:
+            #
             remote.close()
 
+    #
     def step_async(self, actions: Any) -> None:
+        #
         for remote, action in zip(self.remotes, actions):
+            #
             remote.send(('step', action))
+        #
         self.waiting = True
 
+    #
     def step_wait(self) -> tuple[Any, Any, Any, Any, Any]:
+        #
         results: list[Any] = [remote.recv() for remote in self.remotes]
+        #
         self.waiting = False
+        #
         obs, rews, terms, truncs, infos = zip(*results)
+        #
         return np.stack(obs), np.stack(rews), np.stack(terms), np.stack(truncs), infos
 
+    #
     def step(self, actions: Any) -> tuple[Any, Any, Any, Any, Any]:
+        #
         self.step_async(actions)
+        #
         return self.step_wait()
 
+    #
     def reset(self) -> Any:
+        #
         for remote in self.remotes:
+            #
             remote.send(('reset', None))
+        #
         return np.stack([remote.recv() for remote in self.remotes])
 
+    #
     def close(self) -> None:
+
+        #
         if self.closed:
+            #
             return
+
+        #
         if self.waiting:
+            #
             for remote in self.remotes:
+                #
                 remote.recv()
+
+        #
         for remote in self.remotes:
+            #
             remote.send(('close', None))
+
+        #
         for p in self.ps:
+            #
             p.join()
+
+        #
         self.closed = True
 
 
@@ -2444,25 +2577,36 @@ class PPOAgent:
         #
         gae = 0
 
+        #
         num_steps = len(memory.rewards)
 
+        #
         for t in range(num_steps - 1, -1, -1):
 
-            # If it is the last step
+            #
+            ### If it is the last step. ###
+            #
             if t == num_steps - 1:
+                #
                 next_non_terminal = 1.0 - next_done_t
                 next_val = next_value.squeeze()
+            #
             else:
+                #
                 next_non_terminal = 1.0 - is_terminals_t[t + 1]
                 next_val = values[t + 1].squeeze()
 
+            #
             delta = rewards_t[t] + self.gamma * next_val * next_non_terminal - values[t].squeeze()
             gae = delta + self.gamma * self.gae_lambda * next_non_terminal * gae
 
+            #
             advantages[t] = gae
             returns[t] = advantages[t] + values[t].squeeze() # Return = Advantage + Value
 
-        # Flatten for training
+        #
+        ### Flatten for training. ###
+        #
         returns = returns.view(-1)
         advantages = advantages.view(-1)
 
@@ -2477,6 +2621,8 @@ class PPOAgent:
         for _ in range(self.K_epochs):
 
             #
+            ### Evaluate the policy. ###
+            #
             logprobs: torch.Tensor
             state_values: torch.Tensor
             dist_entropy: torch.Tensor
@@ -2487,21 +2633,27 @@ class PPOAgent:
             state_values = torch.squeeze(state_values)
 
             #
+            ### Calculate ratios. ###
+            #
             ratios: torch.Tensor = torch.exp(logprobs - old_logprobs_flat)
 
             #
-            # Use GAE Advantages here
+            ### Use GAE Advantages here. ###
+            #
             surr1: torch.Tensor = ratios * advantages
             surr2: torch.Tensor = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
             #
-            # Critic loss is MSE(Value, Returns)
+            ### Critic loss is MSE(Value, Returns). ###
+            #
             loss: torch.Tensor = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, returns) - 0.01*dist_entropy
 
             #
+            ### Optimize the policy. ###
+            #
             self.optimizer.zero_grad()
             loss.mean().backward()
-            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 0.5)
+            torch.nn.utils.clp_grad_norm_(self.policy.parameters(), 0.5)
             self.optimizer.step()
 
         #
@@ -2515,11 +2667,11 @@ class Memory:
     def __init__(self) -> None:
 
         #
-        self.actions: List[torch.Tensor] = []
-        self.states: List[torch.Tensor] = []
-        self.logprobs: List[np.ndarray] = []        # Stored as numpy arrays in PPOAgent.update
-        self.rewards: List[np.ndarray] = []         # Stored as numpy arrays in PPOAgent.update
-        self.is_terminals: List[np.ndarray] = []    # Stored as numpy arrays in PPOAgent.update
+        self.actions: list[torch.Tensor] = []
+        self.states: list[torch.Tensor] = []
+        self.logprobs: list[np.ndarray] = []        # Stored as numpy arrays in PPOAgent.update
+        self.rewards: list[np.ndarray] = []         # Stored as numpy arrays in PPOAgent.update
+        self.is_terminals: list[np.ndarray] = []    # Stored as numpy arrays in PPOAgent.update
 
     #
     def clear_memory(self) -> None:
