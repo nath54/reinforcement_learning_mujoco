@@ -3670,16 +3670,87 @@ class Main:
                     #
                     ### Get zero action. ###
                     #
-                    action = np.zeros(4, dtype=np.float64)
+                    if config.robot.control_mode == "discrete_direction":
+                        action = np.zeros(1, dtype=np.float64)
+                    elif config.robot.control_mode == "continuous_vector":
+                        action = np.zeros(2, dtype=np.float64)
+                    else:
+                        action = np.zeros(4, dtype=np.float64)
 
                 #
                 ### Apply action. ###
                 #
-                action = np.clip(action, -1.0, 1.0)
-                previous_action = action # Update previous action
-                max_speed = 200.0
-                target_speeds = action * max_speed
-                physics.robot_wheels_speed[:] = target_speeds
+                #
+                ### Handle different control modes. ###
+                #
+                target_speeds: NDArray[np.float64] = np.zeros(4, dtype=np.float64)
+                max_speed = 500.0
+                
+                if config.robot.control_mode == "discrete_direction":
+                    #
+                    ### Discrete actions. ###
+                    #
+                    action_idx = int(action.item()) if isinstance(action, np.ndarray) else int(action)
+                    #
+                    if action_idx == 0: # Forward
+                        target_speeds[:] = max_speed
+                    elif action_idx == 1: # Backward
+                        target_speeds[:] = -max_speed
+                    elif action_idx == 2: # Left
+                        target_speeds[0] = -max_speed
+                        target_speeds[1] = max_speed
+                        target_speeds[2] = -max_speed
+                        target_speeds[3] = max_speed
+                    elif action_idx == 3: # Right
+                        target_speeds[0] = max_speed
+                        target_speeds[1] = -max_speed
+                        target_speeds[2] = max_speed
+                        target_speeds[3] = -max_speed
+                    
+                    physics.robot_wheels_speed[:] = target_speeds
+                    
+                    #
+                    ### Update previous action for state. ###
+                    #
+                    simulated_action = np.zeros(4, dtype=np.float64)
+                    if action_idx == 0: simulated_action[:] = 1.0
+                    elif action_idx == 1: simulated_action[:] = -1.0
+                    elif action_idx == 2: simulated_action = np.array([-1.0, 1.0, -1.0, 1.0])
+                    elif action_idx == 3: simulated_action = np.array([1.0, -1.0, 1.0, -1.0])
+                    #
+                    previous_action = simulated_action
+
+                elif config.robot.control_mode == "continuous_vector":
+                    #
+                    ### Continuous Vector: [Speed, Rotation] ###
+                    #
+                    speed = np.clip(action[0], -1.0, 1.0)
+                    rotation = np.clip(action[1], -1.0, 1.0)
+                    #
+                    ### Mix controls. ###
+                    #
+                    left_speed = speed + rotation
+                    right_speed = speed - rotation
+                    #
+                    raw_wheel_speeds = np.array([left_speed, right_speed, left_speed, right_speed])
+                    #
+                    ### Clip to range. ###
+                    #
+                    raw_wheel_speeds = np.clip(raw_wheel_speeds, -1.0, 1.0)
+                    
+                    target_speeds = raw_wheel_speeds * max_speed
+                    physics.robot_wheels_speed[:] = target_speeds
+                    #
+                    previous_action = raw_wheel_speeds
+
+                else: # "continuous_wheels"
+                    #
+                    ### Action is 4 continuous values for wheel speeds ###
+                    #
+                    action = np.clip(action, -1.0, 1.0)
+                    previous_action = action # Update previous action
+                    target_speeds = action * max_speed
+                    physics.robot_wheels_speed[:] = target_speeds
 
                 #
                 ### Step. ###

@@ -9,7 +9,7 @@ simulation:
 robot:
   xml_path: "four_wheels_robot.xml"
   action_smoothing_k: 5
-  control_mode: "discrete_direction" # Options: "continuous_wheels", "discrete_direction", "continuous_vector"
+  control_mode: "continuous_wheels" # Options: "continuous_wheels", "discrete_direction", "continuous_vector"
 
 rewards:
   goal: 100.0
