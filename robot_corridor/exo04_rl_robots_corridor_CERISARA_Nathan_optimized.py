@@ -88,6 +88,7 @@ class RobotConfig:
     #
     xml_path: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "four_wheels_robot.xml")
     action_smoothing_k: int = 1
+    control_mode: str = "continuous_wheels"
 
 #
 @dataclass
@@ -2111,9 +2112,31 @@ class CorridorEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(self.state_dim,), dtype=np.float32
         )
-        self.action_space = spaces.Box(
-            low=-1.0, high=1.0, shape=(4,), dtype=np.float32
-        )
+        #
+        ### Define Action Space based on control mode. ###
+        #
+        if config.robot.control_mode == "discrete_direction":
+            #
+            ### 0: Forward, 1: Backward, 2: Left, 3: Right ###
+            #
+            self.action_space = spaces.Discrete(4)
+            self.action_dim = 4
+        #
+        elif config.robot.control_mode == "continuous_vector":
+            #
+            ### [0]: Speed (Forward/Backward), [1]: Rotation (Left/Right) ###
+            #
+            self.action_space = spaces.Box(
+                low=-1.0, high=1.0, shape=(2,), dtype=np.float32
+            )
+            self.action_dim = 2
+        #
+        else: # "continuous_wheels"
+            #
+            self.action_space = spaces.Box(
+                low=-1.0, high=1.0, shape=(4,), dtype=np.float32
+            )
+            self.action_dim = 4
 
         #
         ### Action smoothing history. ###
@@ -2196,29 +2219,108 @@ class CorridorEnv(gym.Env):
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
 
         #
-        ### Action is 4 continuous values for wheel speeds ###
-        ### Clip action to reasonable range ###
+        ### Handle different control modes. ###
         #
-        action = np.clip(action, -1.0, 1.0)
-
-        #
-        ### Smooth action. ###
-        #
-        self.action_history.append(action)
-        #
-        avg_action = np.mean(self.action_history, axis=0)
-
-        #
-        ### Map action to wheel speeds (e.g. max speed 200). ###
-        #
+        target_speeds: NDArray[np.float64] = np.zeros(4, dtype=np.float64)
         max_speed = 500.0
-        target_speeds = avg_action * max_speed
-
         #
-        ### Apply to physics. ###
-        #
-        self.physics.robot_wheels_speed[:] = target_speeds
+        if self.config.robot.control_mode == "discrete_direction":
+            #
+            ### Discrete actions. ###
+            #
+            action_idx = int(action)
+            #
+            if action_idx == 0: # Forward
+                target_speeds[:] = max_speed
+            elif action_idx == 1: # Backward
+                target_speeds[:] = -max_speed
+            elif action_idx == 2: # Left
+                target_speeds[0] = -max_speed
+                target_speeds[1] = max_speed
+                target_speeds[2] = -max_speed
+                target_speeds[3] = max_speed
+            elif action_idx == 3: # Right
+                target_speeds[0] = max_speed
+                target_speeds[1] = -max_speed
+                target_speeds[2] = max_speed
+                target_speeds[3] = -max_speed
+            
+            #
+            ### For discrete, we might want to smooth the target speeds or just apply them directly. ###
+            ### Let's apply directly for now to be responsive, or use a small smoothing if needed. ###
+            ### The existing smoothing logic below expects continuous actions, so we bypass it for discrete or adapt it. ###
+            ### Let's bypass the complex smoothing for discrete for now and just set it. ###
+            #
+            self.physics.robot_wheels_speed[:] = target_speeds
+            
+            #
+            ### Update previous action for state (one-hot encoding or just the index?). ###
+            ### The state vector expects 4 values for previous action. ###
+            ### Let's map the discrete action to a "simulated" continuous action for the state representation. ###
+            #
+            simulated_action = np.zeros(4, dtype=np.float64)
+            if action_idx == 0: simulated_action[:] = 1.0
+            elif action_idx == 1: simulated_action[:] = -1.0
+            elif action_idx == 2: simulated_action = np.array([-1.0, 1.0, -1.0, 1.0])
+            elif action_idx == 3: simulated_action = np.array([1.0, -1.0, 1.0, -1.0])
+            #
+            self.previous_action = simulated_action
 
+        elif self.config.robot.control_mode == "continuous_vector":
+            #
+            ### Continuous Vector: [Speed, Rotation] ###
+            #
+            speed = np.clip(action[0], -1.0, 1.0)
+            rotation = np.clip(action[1], -1.0, 1.0)
+            #
+            ### Mix controls. ###
+            #
+            left_speed = speed + rotation
+            right_speed = speed - rotation
+            #
+            raw_wheel_speeds = np.array([left_speed, right_speed, left_speed, right_speed])
+            #
+            ### Clip to range. ###
+            #
+            raw_wheel_speeds = np.clip(raw_wheel_speeds, -1.0, 1.0)
+            
+            #
+            ### Smooth action. ###
+            #
+            self.action_history.append(raw_wheel_speeds)
+            avg_action = np.mean(self.action_history, axis=0)
+            #
+            target_speeds = avg_action * max_speed
+            self.physics.robot_wheels_speed[:] = target_speeds
+            #
+            self.previous_action = raw_wheel_speeds # Store the 4-wheel equivalent
+
+        else: # "continuous_wheels"
+            #
+            ### Action is 4 continuous values for wheel speeds ###
+            ### Clip action to reasonable range ###
+            #
+            action = np.clip(action, -1.0, 1.0)
+
+            #
+            ### Smooth action. ###
+            #
+            self.action_history.append(action)
+            #
+            avg_action = np.mean(self.action_history, axis=0)
+
+            #
+            ### Map action to wheel speeds (e.g. max speed 200). ###
+            #
+            target_speeds = avg_action * max_speed
+
+            #
+            ### Apply to physics. ###
+            #
+            self.physics.robot_wheels_speed[:] = target_speeds
+            #
+            self.previous_action = action
+        
         #
         ### Step physics. ###
         #
@@ -2230,9 +2332,9 @@ class CorridorEnv(gym.Env):
         self.current_step_count += 1
 
         #
-        ### Update previous action. ###
+        ### Update previous action (already done in blocks above). ###
         #
-        self.previous_action = action
+        # self.previous_action = action # REMOVED, handled specifically per mode
 
         #
         ### Observation. ##
@@ -2384,17 +2486,20 @@ class CorridorEnv(gym.Env):
 class ActorCritic(nn.Module):
 
     #
-    def __init__(self, state_dim: int, action_dim: int, vision_shape: tuple[int, int], state_vector_dim: int = 13, action_std_init: float = 0.6) -> None:
+    def __init__(self, state_dim: int, action_dim: int, vision_shape: tuple[int, int], state_vector_dim: int = 13, action_std_init: float = 0.6, control_mode: str = "continuous_wheels") -> None:
 
         #
         super(ActorCritic, self).__init__()
 
         #
         self.action_dim = action_dim
+        self.control_mode = control_mode
         #
         ### Use log_std for numerical stability (can't go negative). ###
         #
-        self.action_log_std = nn.Parameter(torch.zeros(action_dim))
+        if self.control_mode != "discrete_direction":
+            self.action_log_std = nn.Parameter(torch.zeros(action_dim))
+        
         self.vision_shape = vision_shape
         self.state_vector_dim = state_vector_dim
         self.vision_size = vision_shape[0] * vision_shape[1]
@@ -2448,6 +2553,16 @@ class ActorCritic(nn.Module):
             nn.Tanh(),
             nn.Linear(64, action_dim)
         )
+        
+        #
+        ### For discrete, we use Softmax at the end? No, Categorical takes logits. ###
+        ### But we used Tanh above which squashes to [-1, 1]. ###
+        ### For discrete logits, we probably want linear output or Softmax. ###
+        ### Let's remove Tanh for discrete or keep it and add a linear layer if needed? ###
+        ### The current structure ends with Linear(64, action_dim). ###
+        ### The Tanh is BEFORE the last layer. So the last layer is Linear. ###
+        ### So it outputs logits. That is fine for Categorical. ###
+        #
 
         #
         ### Initialize actor weights with orthogonal initialization (small gain). ###
@@ -2508,17 +2623,33 @@ class ActorCritic(nn.Module):
         ### Process input. ###
         #
         features = self._process_input(state)
-        action_mean = self.actor(features)
+        
+        #
+        if self.control_mode == "discrete_direction":
+            #
+            action_logits = self.actor(features)
+            #
+            ### Softmax is applied by Categorical distribution internally on logits? No, it takes logits. ###
+            #
+            from torch.distributions import Categorical
+            dist = Categorical(logits=action_logits)
+            #
+            action = dist.sample()
+            action_logprob = dist.log_prob(action)
+            
+        else:
+            #
+            action_mean = self.actor(features)
 
-        #
-        ### Sample action using log_std. ###
-        #
-        action_std = torch.exp(self.action_log_std).clamp(min=0.01, max=1.0).to(state.device)
-        dist = Normal(action_mean, action_std)
+            #
+            ### Sample action using log_std. ###
+            #
+            action_std = torch.exp(self.action_log_std).clamp(min=0.01, max=1.0).to(state.device)
+            dist = Normal(action_mean, action_std)
 
-        #
-        action = dist.sample()
-        action_logprob = dist.log_prob(action).sum(axis=-1)
+            #
+            action = dist.sample()
+            action_logprob = dist.log_prob(action).sum(axis=-1)
 
         #
         return action.detach(), action_logprob.detach()
@@ -2528,15 +2659,33 @@ class ActorCritic(nn.Module):
 
         #
         features = self._process_input(state)
-        action_mean = self.actor(features)
-
+        
         #
-        action_std = torch.exp(self.action_log_std).clamp(min=0.01, max=1.0).to(state.device)
-        dist = Normal(action_mean, action_std)
+        if self.control_mode == "discrete_direction":
+            #
+            action_logits = self.actor(features)
+            #
+            from torch.distributions import Categorical
+            dist = Categorical(logits=action_logits)
+            #
+            ### For discrete, action is just an index (scalar per env). ###
+            ### Ensure action is correct shape. ###
+            #
+            action_logprobs = dist.log_prob(action.squeeze(-1) if action.ndim > 1 else action)
+            dist_entropy = dist.entropy()
+            
+        else:
+            #
+            action_mean = self.actor(features)
 
-        #
-        action_logprobs = dist.log_prob(action).sum(axis=-1)
-        dist_entropy = dist.entropy().sum(axis=-1)
+            #
+            action_std = torch.exp(self.action_log_std).clamp(min=0.01, max=1.0).to(state.device)
+            dist = Normal(action_mean, action_std)
+
+            #
+            action_logprobs = dist.log_prob(action).sum(axis=-1)
+            dist_entropy = dist.entropy().sum(axis=-1)
+            
         state_values = self.critic(features)
 
         #
@@ -2556,7 +2705,8 @@ class PPOAgent:
         gamma: float = 0.99,
         K_epochs: int = 4,
         eps_clip: float = 0.2,
-        gae_lambda: float = 0.95
+        gae_lambda: float = 0.95,
+        control_mode: str = "continuous_wheels"
     ) -> None:
 
         #
@@ -2564,6 +2714,7 @@ class PPOAgent:
         self.eps_clip: float = eps_clip
         self.K_epochs: int = K_epochs
         self.gae_lambda: float = gae_lambda
+        self.control_mode: str = control_mode
 
         #
         ### Detect device. ###
@@ -2575,9 +2726,9 @@ class PPOAgent:
         #
         self.action_dim: int = action_dim
         #
-        self.policy: 'ActorCritic' = cast('ActorCritic', ActorCritic(state_dim, action_dim, vision_shape).float().to(self.device))
+        self.policy: 'ActorCritic' = cast('ActorCritic', ActorCritic(state_dim, action_dim, vision_shape, control_mode=control_mode).float().to(self.device))
         self.optimizer: optim.Adam = optim.Adam(self.policy.parameters(), lr=lr)
-        self.policy_old: 'ActorCritic' = cast('ActorCritic', ActorCritic(state_dim, action_dim, vision_shape).float().to(self.device))
+        self.policy_old: 'ActorCritic' = cast('ActorCritic', ActorCritic(state_dim, action_dim, vision_shape, control_mode=control_mode).float().to(self.device))
         self.policy_old.load_state_dict(self.policy.state_dict())
 
         #
@@ -2638,7 +2789,12 @@ class PPOAgent:
         ### (T * num_envs, ...). ###
         #
         old_states_flat = old_states.view(-1, self.policy.vision_size + self.policy.state_vector_dim)
-        old_actions_flat = old_actions.view(-1, self.action_dim)
+        
+        if self.control_mode == "discrete_direction":
+            old_actions_flat = old_actions.view(-1, 1)
+        else:
+            old_actions_flat = old_actions.view(-1, self.action_dim)
+            
         old_logprobs_flat = old_logprobs.view(-1)
 
         #
@@ -3145,10 +3301,15 @@ class Main:
         vision_size = vision_width * vision_height
         state_dim = vision_size + 13
         #
-        action_dim = 4
+        if config.robot.control_mode == "discrete_direction":
+            action_dim = 4
+        elif config.robot.control_mode == "continuous_vector":
+            action_dim = 2
+        else:
+            action_dim = 4
 
         #
-        agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip, gae_lambda=config.training.gae_lambda)
+        agent = PPOAgent(state_dim, action_dim, (vision_width, vision_height), lr=config.training.learning_rate, gamma=config.training.gamma, K_epochs=config.training.k_epochs, eps_clip=config.training.eps_clip, gae_lambda=config.training.gae_lambda, control_mode=config.robot.control_mode)
         memory = Memory()
 
         #
