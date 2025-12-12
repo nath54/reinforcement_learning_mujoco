@@ -2301,10 +2301,23 @@ class PPOAgent:
         with torch.no_grad():
             #
             state_tensor: torch.Tensor = torch.FloatTensor(state).to(self.device)
+            
+            # Handle single observation (1D) by adding batch dimension
+            is_single_obs = state.ndim == 1
+            if is_single_obs:
+                state_tensor = state_tensor.unsqueeze(0)
+                
             action_tensor, action_logprob_tensor = self.policy_old.act(state_tensor)
 
         #
-        return action_tensor.cpu().numpy(), action_logprob_tensor.cpu().numpy()
+        action = action_tensor.cpu().numpy()
+        action_logprob = action_logprob_tensor.cpu().numpy()
+        
+        # If input was single observation, flatten output to match
+        if is_single_obs:
+            return action.flatten(), action_logprob.flatten()
+            
+        return action, action_logprob
         
     #
     def update(self, memory: 'Memory') -> None:
