@@ -96,7 +96,7 @@ class RewardConfig:
     goal: float = 100.0
     collision: float = -0.05
     straight_line_penalty: float = 0.5
-    straight_line_dist: float = 15.0
+    straight_line_dist: float = 40.0
     pacer_speed: float = 0.01
 
 #
@@ -597,6 +597,11 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
             #
             vision_matrix[paste_start_x:paste_end_x, paste_start_y:paste_end_y] = \
                 self.env_matrix[inter_start_x:inter_end_x, inter_start_y:inter_end_y]
+
+        #
+        ### Sign the matrix to represent obstacles. ###
+        #
+        vision_matrix = np.sign(vision_matrix)
 
         #
         ### 4. Flatten vision and concatenate with state. ###
@@ -2125,6 +2130,8 @@ class CorridorEnv(gym.Env):
 
     #
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None) -> tuple[Any, dict[str, Any]]:
+
+        #
         super().reset(seed=seed)
 
         #
@@ -2174,6 +2181,7 @@ class CorridorEnv(gym.Env):
         #
         self.action_history.clear()
 
+        #
         return self.get_observation(), {}
 
     #
@@ -2189,12 +2197,13 @@ class CorridorEnv(gym.Env):
         ### Smooth action. ###
         #
         self.action_history.append(action)
+        #
         avg_action = np.mean(self.action_history, axis=0)
 
         #
         ### Map action to wheel speeds (e.g. max speed 200). ###
         #
-        max_speed = 200.0
+        max_speed = 500.0
         target_speeds = avg_action * max_speed
 
         #
@@ -2206,6 +2215,7 @@ class CorridorEnv(gym.Env):
         ### Step physics. ###
         #
         self.physics.apply_additionnal_physics()
+        #
         mujoco.mj_step(self.model, self.data)
 
         #
@@ -2223,32 +2233,27 @@ class CorridorEnv(gym.Env):
 
         #
         ### Reward ###
-        ### 1. Progress reward (Relative to virtual pacer) ###
+        ### Progress reward (Relative to virtual pacer) ###
         ### Reward = x_pos - (0.01 * step) ###
         ### If robot is faster than 0.01 m/step, reward is positive. ###
         #
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
+        #
         x_pos = self.data.xpos[robot_id][0]
         y_pos = self.data.xpos[robot_id][1]
+        #
+        x_vel = self.data.cvel[robot_id][0]
 
         #
         reward = x_pos - (self.config.rewards.pacer_speed * self.current_step_count)
 
         #
-        ### 2. Survival reward (optional) ###
-        ### Increased to encourage staying alive longer ###
+        ### Velocity reward ###
         #
-        # reward += 0.1
+        reward += x_vel / 100.0
 
         #
-        ### 3. Center corridor reward ###
-        ### Penalize for deviating from y=0 ###
-        ### Reduced weight from 0.1 to 0.05 per user plan to avoid suicidal behavior ###
-        #
-        # reward -= 0.05 * abs(y_pos)
-
-        #
-        ### 4. Straight line penalty. ###
+        ### Straight line penalty. ###
         ### Penalize if staying in same Y radius for too long (> 15m). ###
         #
         y_tolerance: float = 0.5
@@ -3418,7 +3423,18 @@ class Main:
             previous_action = np.zeros(4, dtype=np.float64)
 
             #
+            crt_step: int = -1
+
+            #
+            print(f"DEBUG: Warmup steps: {config.simulation.warmup_steps}")
+
+            #
             while viewer_instance.is_running() and not state_obj.controls.quit_requested:
+
+                #
+                ### Step count. ###
+                #
+                crt_step += 1
 
                 #
                 ### Get observation. ###
@@ -3428,7 +3444,14 @@ class Main:
                 #
                 ### Get action from agent. ###
                 #
-                action, log_prob = agent.select_action(obs)
+                if crt_step >= config.simulation.warmup_steps:
+                    #
+                    action, log_prob = agent.select_action(obs)
+                else:
+                    #
+                    ### Get zero action. ###
+                    #
+                    action = np.zeros(4, dtype=np.float64)
 
                 #
                 ### Apply action. ###

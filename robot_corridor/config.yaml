@@ -1,10 +1,10 @@
 simulation:
   corridor_length: 100.0
   corridor_width: 3.0
-  robot_view_range: 3.0
-  max_steps: 2000
-  env_precision: 0.1
-  warmup_steps: 50
+  robot_view_range: 4.0
+  max_steps: 30000
+  env_precision: 0.2
+  warmup_steps: 1000
 
 robot:
   xml_path: "four_wheels_robot.xml"
