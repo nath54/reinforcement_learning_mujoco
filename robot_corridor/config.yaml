@@ -4,7 +4,7 @@ simulation:
   robot_view_range: 4.0
   max_steps: 30000
   env_precision: 0.2
-  warmup_steps: 100
+  warmup_steps: 1000
 
 robot:
   xml_path: "four_wheels_robot.xml"
