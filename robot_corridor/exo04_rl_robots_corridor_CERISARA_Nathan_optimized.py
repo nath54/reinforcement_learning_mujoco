@@ -1111,6 +1111,7 @@ class Robot:
                 'name': 'mat_chassis_violet',
                 'texture': 'tex_chassis',
                 'rgba': '0.39 0.13 0.63 1',  # Nice violet color
+                # 'rgba': '1 0 0 1',  # Nice violet color
                 'shininess': '0.3',
                 'specular': '0.5'
             },
@@ -1524,8 +1525,8 @@ class RootWorldScene:
         )
 
         #
-        ### Store rects. ##
-        ##
+        ### Store rects. ###
+        #
         if 'environment_rects' in corridor_components:
             #
             self.environment_rects = cast(list[Rect2d], corridor_components['environment_rects'])
@@ -2244,7 +2245,7 @@ class CorridorEnv(gym.Env):
         ### Handle different control modes. ###
         #
         target_speeds: NDArray[np.float64] = np.zeros(4, dtype=np.float64)
-        max_speed = 500.0
+        max_speed = 200.0
         #
         if self.config.robot.control_mode == "discrete_direction":
             #
