@@ -86,6 +86,7 @@ class SimulationConfig:
     env_precision: float = 0.2
     warmup_steps: int = 100
     action_repeat: int = 10
+    num_envs: int = 12  # Number of parallel training environments
 
 #
 @dataclass
@@ -94,6 +95,7 @@ class RobotConfig:
     xml_path: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "four_wheels_robot.xml")
     action_smoothing_k: int = 1
     control_mode: str = "continuous_wheels"
+    max_speed: float = 50.0  # Maximum wheel speed
 
 #
 @dataclass
@@ -107,6 +109,10 @@ class RewardConfig:
     # Velocity-based reward settings
     use_velocity_reward: bool = True
     velocity_reward_scale: float = 0.1
+    # Anti-looping / stuck detection
+    stuck_penalty: float = -0.1
+    stuck_x_velocity_threshold: float = 0.05
+    backward_escape_bonus: float = 0.02
 
 #
 @dataclass
@@ -2247,7 +2253,7 @@ class CorridorEnv(gym.Env):
         ### Handle different control modes. ###
         #
         target_speeds: NDArray[np.float64] = np.zeros(4, dtype=np.float64)
-        max_speed = 50.0
+        max_speed = self.config.robot.max_speed
         #
         if self.config.robot.control_mode == "discrete_direction":
             #
@@ -2372,6 +2378,7 @@ class CorridorEnv(gym.Env):
             robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
             #
             x_pos = self.data.xpos[robot_id][0]
+            x_velocity = self.data.cvel[robot_id][0]  # Linear velocity in x
             #
             ### Choose reward type based on config. ###
             #
@@ -2385,6 +2392,21 @@ class CorridorEnv(gym.Env):
                 ### Original pacer-based reward. ###
                 #
                 step_reward = x_pos - (self.config.rewards.pacer_speed * self.current_step_count)
+
+            #
+            ### Stuck / Looping Detection. ###
+            #
+            is_stuck = abs(x_velocity) < self.config.rewards.stuck_x_velocity_threshold
+            is_going_backward = (self.config.robot.control_mode == "discrete_direction" and int(action) == 1) or \
+                                (self.config.robot.control_mode != "discrete_direction" and np.mean(self.previous_action) < -0.3)
+            
+            if is_stuck:
+                step_reward += self.config.rewards.stuck_penalty
+                #
+                ### Bonus for trying to escape by going backward. ###
+                #
+                if is_going_backward:
+                    step_reward += self.config.rewards.backward_escape_bonus
 
             #
             ### Check Termination Conditions (inside loop). ###
@@ -3373,7 +3395,7 @@ class Main:
         #
         ### Determine number of environments. ###
         #
-        num_envs: int = min(50, mp.cpu_count())
+        num_envs: int = config.simulation.num_envs
         #
         print(f"Using {num_envs} parallel environments.")
 
