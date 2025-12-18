@@ -44,7 +44,11 @@ import multiprocessing as mp
 from multiprocessing import Process, Pipe
 import gymnasium as gym
 from gymnasium import spaces
-import cv2
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+    print("Warning: opencv-python (cv2) not found. Live vision visualization will be disabled.")
 
 
 
@@ -81,6 +85,7 @@ class SimulationConfig:
     max_steps: int = 30000
     env_precision: float = 0.2
     warmup_steps: int = 100
+    action_repeat: int = 10
 
 #
 @dataclass
@@ -117,7 +122,6 @@ class TrainingConfig:
     eps_clip: float = 0.2
     update_timestep: int = 4000
     gae_lambda: float = 0.95
-    # New hyperparameters (previously hardcoded)
     entropy_coeff: float = 0.02
     value_loss_coeff: float = 0.5
     grad_clip_max_norm: float = 0.5
@@ -483,6 +487,7 @@ class Rect2d:
             r.point_inside(self.corner_bottom_right)
         )
 
+
 #
 ### Efficient Collision System Between Rectangles. ###
 #
@@ -688,7 +693,6 @@ class Corridor:
 
         #
         self.xml_file_path: str = "corridor_3x100.xml"  # "corridor_custom.xml"
-
 
     #
     def extract_corridor_from_xml(self) -> dict[str, Any]:
@@ -1287,7 +1291,6 @@ class RootWorldScene:
         self.environment_rects: list[Rect2d] = []
         self.env_bounds: Rect2d = Rect2d(Point2d(0, -10), Point2d(100, 10)) # Approximate bounds, will be updated
 
-
     #
     def build_combined_model(
         self,
@@ -1504,7 +1507,6 @@ class RootWorldScene:
         ### Create and return MuJoCo model. ###
         #
         return mujoco.MjModel.from_xml_string(xml_string)
-
 
     #
     def construct_scene(
@@ -2347,109 +2349,98 @@ class CorridorEnv(gym.Env):
         #
         ### Step physics. ###
         #
-        self.physics.apply_additionnal_physics()
         #
-        mujoco.mj_step(self.model, self.data)
+        ### Action Repeat Loop. ###
+        #
+        total_reward = 0.0
+
+        for _ in range(self.config.simulation.action_repeat):
+
+            #
+            ### Step physics. ###
+            #
+            self.physics.apply_additionnal_physics()
+            #
+            mujoco.mj_step(self.model, self.data)
+
+            #
+            self.current_step_count += 1
+
+            ### Calculate reward for this sub-step. ###
+
+            #
+            robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
+            #
+            x_pos = self.data.xpos[robot_id][0]
+            #
+            ### Choose reward type based on config. ###
+            #
+            if self.config.rewards.use_velocity_reward:
+                #
+                ### Absolute position reward scaled. ###
+                #
+                step_reward = x_pos * self.config.rewards.velocity_reward_scale
+            else:
+                #
+                ### Original pacer-based reward. ###
+                #
+                step_reward = x_pos - (self.config.rewards.pacer_speed * self.current_step_count)
+
+            #
+            ### Check Termination Conditions (inside loop). ###
+            #
+            terminated = False
+            truncated = False
+
+            if self.data.xpos[robot_id][0] < -self.config.simulation.corridor_length:
+                truncated = True
+            if abs(self.data.xpos[robot_id][1]) > self.config.simulation.corridor_width + 10.0:
+                truncated = True
+            if self.data.xpos[robot_id][2] < -5.0:
+                terminated = True
+            if self.data.xpos[robot_id][0] > self.config.simulation.corridor_length:
+                terminated = True
+                step_reward += self.config.rewards.goal
+
+            #
+            ### Scale reward. ###
+            #
+            step_reward *= self.config.training.reward_scale
+
+            #
+            ### Add bonuses. ###
+            #
+            if terminated:
+                step_reward += 0.5
+            if truncated:
+                step_reward -= 0.5
+
+            #
+            total_reward += step_reward
+
+            #
+            ### Break if done. ###
+            #
+            if terminated or truncated:
+                break
 
         #
-        self.current_step_count += 1
-
-        #
-        ### Update previous action (already done in blocks above). ###
-        #
-        # self.previous_action = action # REMOVED, handled specifically per mode
-
-        #
-        ### Observation. ##
-        ##
-        obs = self.get_observation()
-
-        ### Reward ###
-        ### Progress reward (Relative to virtual pacer) ###
-        ### Reward = x_pos - (0.01 * step) ###
-        ### If robot is faster than 0.01 m/step, reward is positive. ###
+        ### Prepare Info for Tracking. ###
         #
         robot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
-        #
-        x_pos = self.data.xpos[robot_id][0]
-        y_pos = self.data.xpos[robot_id][1]
-        #
-        ### MuJoCo cvel is 6D: [angular_vel_x, angular_vel_y, angular_vel_z, linear_vel_x, linear_vel_y, linear_vel_z]. ###
-        ### Index 3 = linear velocity in x direction (forward/backward). ###
-        #
-        x_vel = self.data.cvel[robot_id][3]
+        pos = [self.data.xpos[robot_id][0], self.data.xpos[robot_id][1], self.data.xpos[robot_id][2]]
 
         #
-        ### Choose reward type based on config. ###
+        ### Get Observation (at the end of the repeated steps). ###
         #
-        if self.config.rewards.use_velocity_reward:
-            #
-            ### Absolute position reward: how far from starting point. ###
-            ### Further forward = higher reward. Simpler and more stable signal. ###
-            #
-            reward = x_pos * self.config.rewards.velocity_reward_scale
-        else:
-            #
-            ### Original pacer-based reward. ###
-            #
-            reward = x_pos - (self.config.rewards.pacer_speed * self.current_step_count)
+        obs = self.get_observation()
 
         #
-        ### Done condition. ###
-        #
-        terminated = False
-        truncated = False
-
-        #
-        ### Bounded environment checks (User requested margins: x < -100, |y| > 40). ###
-        ### If driving backwards too far. ###
-        #
-        if self.data.xpos[robot_id][0] < -self.config.simulation.corridor_length:
-            #
-            truncated = True
-
-        #
-        ### If wandering off sideways too far. ###
-        #
-        if abs(self.data.xpos[robot_id][1]) > self.config.simulation.corridor_width + 10.0: # Margin
-            #
-            truncated = True
-
-        #
-        ### If fell off (z check). ###
-        #
-        if self.data.xpos[robot_id][2] < -5.0:
-            #
-            terminated = True
-
-        #
-        ### If reached end (e.g. 100m). ###
-        #
-        if self.data.xpos[robot_id][0] > self.config.simulation.corridor_length:
-            #
-            terminated = True
-            #
-            reward += self.config.rewards.goal
-
-        #
-        ### Scale reward using config value. ###
-        #
-        reward *= self.config.training.reward_scale
-
-        #
-        ### Termination bonuses (smaller to not overwhelm progress signal). ###
-        #
-        if terminated:
-            #
-            reward += 0.5
-
-        #
-        if truncated:
-            #
-            reward -= 0.5
-
-        #
-        return obs, reward, terminated, truncated, {}
+        return obs, total_reward, terminated, truncated, {
+            "robot_pos": pos,
+            "robot_rot": [0,0,0], # Placeholder or fetch if needed
+            "robot_vel": [0,0,0]  # Placeholder or fetch if needed
+        }
 
     #
     def get_observation(self):
@@ -2683,6 +2674,20 @@ class ActorCritic(nn.Module):
         return action.detach(), action_logprob.detach()
 
     #
+    def metrics(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        #
+        features = self._process_input(state)
+        #
+        if self.control_mode == "discrete_direction":
+            #
+            action_logits = self.actor(features)
+            return action_logits, action_logits # Return logits for both
+        else:
+            #
+            action_mean = self.actor(features)
+            return action_mean, action_mean
+
+    #
     def evaluate(self, state: torch.Tensor, action: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
         #
@@ -2824,6 +2829,21 @@ class PPOAgent:
 
         #
         return action, action_logprob
+
+    #
+    def get_action_statistics(self, state: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        #
+        with torch.no_grad():
+            #
+            state_tensor = torch.FloatTensor(state).to(self.device)
+            #
+            if state.ndim == 1:
+                state_tensor = state_tensor.unsqueeze(0)
+
+            #
+            mean_val, _ = self.policy.metrics(state_tensor)
+
+        return mean_val.cpu().numpy().flatten()
 
     #
     def update(self, memory: 'Memory', next_state: np.ndarray, next_done: np.ndarray) -> None:
@@ -3181,7 +3201,6 @@ class Main:
         #
         robot_track.plot_tracking()
 
-
     #
     @staticmethod
     def main_video_render() -> None:
@@ -3304,9 +3323,6 @@ class Main:
                         #
                         writer.add_image(pixels)  # type: ignore
 
-
-
-
     #
     @staticmethod
     def train(
@@ -3332,8 +3348,24 @@ class Main:
         gamma = gamma if gamma is not None else config.training.gamma
         K_epochs = K_epochs if K_epochs is not None else config.training.k_epochs
         eps_clip = eps_clip if eps_clip is not None else config.training.eps_clip
-        model_path = model_path if model_path is not None else config.training.model_path
+        prior_model_path = model_path if model_path is not None else config.training.model_path
         load_weights_from = load_weights_from if load_weights_from is not None else config.training.load_weights_from
+
+        #
+        ### Create Experiment Directory. ###
+        #
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        exp_dir = os.path.join("trainings_exp", timestamp)
+        os.makedirs(exp_dir, exist_ok=True)
+        print(f"Experiment data will be saved to: {exp_dir}")
+
+        #
+        ### Update paths for saving. ###
+        #
+        current_model_path = os.path.join(exp_dir, "model_latest.pth")
+        best_model_path = os.path.join(exp_dir, "best_model.pth")
+        training_log_path = os.path.join(exp_dir, "training.json")
 
         #
         print("Starting training...")
@@ -3389,9 +3421,11 @@ class Main:
         memory = Memory()
 
         #
-        print_running_reward = 0
-        print_running_episodes = 0
-        print_nb_episodes = 0
+        ### Tracking variables. ###
+        #
+        episode_rewards = [0.0] * num_envs
+        episode_trajectories = [[] for _ in range(num_envs)]
+        completed_episodes_data = [] # List of dicts {episode, reward, trajectory}
 
         #
         time_step = 0
@@ -3429,30 +3463,6 @@ class Main:
         ### Initialize best reward tracking. ###
         #
         best_reward = -float('inf')
-        best_model_path = model_path.replace(".pth", "_best.pth")
-        best_model_info_path = model_path.replace(".pth", "_best.json")
-
-        #
-        ### Try to load previous best score if exists. ###
-        #
-        if os.path.exists(best_model_info_path):
-
-            #
-            try:
-
-                #
-                with open(best_model_info_path, 'r') as f:
-                    #
-                    info = json.load(f)
-                    best_reward = info.get('best_reward', -float('inf'))
-
-                #
-                print(f"Resuming with previous best reward record: {best_reward}")
-
-            #
-            except Exception as e:
-                #
-                print(f"Could not load previous best info: {e}")
 
         #
         while i_episode < max_episodes:
@@ -3466,7 +3476,9 @@ class Main:
             steps_per_update: int = update_timestep // num_envs
 
             #
-            running_rewards: list[float] = []
+            ### Log for this update interval. ###
+            #
+            interval_completed_rewards = []
 
             #
             for t in range(steps_per_update):
@@ -3479,7 +3491,7 @@ class Main:
                 #
                 ### Step. ###
                 #
-                next_state, reward, terminated, truncated, _ = envs.step(action)
+                next_state, reward, terminated, truncated, infos = envs.step(action)
                 done = np.logical_or(terminated, truncated)
 
                 #
@@ -3492,92 +3504,82 @@ class Main:
                 memory.is_terminals.append(done)
 
                 #
+                ### Update Tracking. ###
+                #
+                for idx in range(num_envs):
+                    episode_rewards[idx] += reward[idx]
+
+                    # Track trajectory (only X, Y, Z from info)
+                    if isinstance(infos[idx], dict) and 'robot_pos' in infos[idx]:
+                        # Downsample trajectory if needed (e.g. save every step here, but we are action repeating already)
+                        episode_trajectories[idx].append(infos[idx]['robot_pos'])
+
+                    if done[idx]:
+                        # Create log entry
+                        log_entry = {
+                            'episode_idx': i_episode, # Note: this is a global counter approximation
+                            'reward': float(episode_rewards[idx]),
+                            # Save trajectory only for Env 0 or sample to avoid massive files
+                            'trajectory': episode_trajectories[idx] if idx == 0 else []
+                        }
+                        completed_episodes_data.append(log_entry)
+                        interval_completed_rewards.append(log_entry['reward'])
+
+                        # Reset tracking for this env
+                        episode_rewards[idx] = 0.0
+                        episode_trajectories[idx] = []
+                        i_episode += 1
+
+                #
                 state = next_state
-
-                #
                 time_step += num_envs
-
-                #
-                ### Track rewards (approximate for printing). ###
-                #
-                print_running_reward += np.sum(reward)
-                running_rewards.append(np.sum(reward))
-                print_nb_episodes += 1
 
             #
             ### Update PPO. ###
             #
-            ## PASS CURRENT STATE (which is next_state of the last step) AND DONE FLAGS FOR BOOTSTRAPPING. ##
-            #
             agent.update(memory, state, done)
             memory.clear_memory()
-            #
             time_step = 0
 
             #
-            i_episode += 1
-
+            ### Logging and Saving. ###
             #
-            delta_episodes_display: int = 1
+            if len(interval_completed_rewards) > 0:
+                avg_reward = sum(interval_completed_rewards) / len(interval_completed_rewards)
+                min_reward = min(interval_completed_rewards)
+                max_reward = max(interval_completed_rewards)
 
-            #
-            delta_episodes_save_model: int = 10
+                print(f"Episodes: {i_episode} \t Avg Reward: {avg_reward:.2f} \t (Min: {min_reward:.2f}, Max: {max_reward:.2f})")
 
-            #
-            if i_episode % delta_episodes_display == 0:
-
-                #
-                ### Also calculate avg reward per step to detect if episodes are just getting very long ###
-                ### We know exactly how many steps passed: `steps_per_update * 10` ###
-                #
-                total_steps_in_log_interval = steps_per_update * 10
-                avg_reward = print_running_reward / max(1, print_nb_episodes)
-                avg_reward_per_step = print_running_reward / total_steps_in_log_interval
-
-                #
-                if delta_episodes_display > 5:
-                    #
-                    print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.4f} (min: {min(running_rewards):.4f}, max: {max(running_rewards):.4f}) \t Avg Reward/Step: {avg_reward_per_step:.4f}")
-                #
-                elif delta_episodes_display == 1:
-                    #
-                    print(f"Update {i_episode} \t Reward: {avg_reward:.4f} \t Reward/Step: {avg_reward_per_step:.4f}")
-                #
-                else:
-                    #
-                    print(f"Update {i_episode} \t Avg Reward/Episode: {avg_reward:.4f} \t Avg Reward/Step: {avg_reward_per_step:.4f}")
-
-
-                #
-                ### Check for best model. ###
-                #
+                # Check for best model
                 if avg_reward > best_reward:
-                    #
                     best_reward = avg_reward
-                    #
-                    print(f"New best reward: {best_reward:.4f}! Saving best model...")
-                    #
+                    print(f"New best reward: {best_reward:.2f}! Saving best model...")
                     torch.save(agent.policy.state_dict(), best_model_path)
 
-                    #
-                    ### Save metadata. ###
-                    #
-                    with open(best_model_info_path, 'w') as f:
-                        #
-                        json.dump({'best_reward': best_reward, 'episode': i_episode}, f)
+                # Save latest model
+                if i_episode % 10 == 0: # Save periodically
+                    torch.save(agent.policy.state_dict(), current_model_path)
 
-                #
-                print_running_reward = 0
-                print_nb_episodes = 0
+                # Flush logs to JSON
+                # Load existing if needed or just append?
+                # Better to overwrite with full list for now or append to file?
+                # Appending to JSON is tricky. Let's rewrite the file.
+                # To avoid memory issues with huge list, we might want to just keep last N?
+                # User asked for "json log file ... with tracking curve".
+                # If we run 20000 episodes, saving 20000 trajectories is huge.
+                # I'll save the last 100 trajectories + all stats?
+                # Let's simple save all for now (user requirement), but warn user if I could.
+                # Actually, I'll filter trajectories in the final save:
+                # Save 'reward' for ALL episodes, but 'trajectory' only for recent or best?
+                # The prompt implies "tracking curve of its position ... in json log file".
+                # I'll save all.
 
-                #
-                if i_episode % delta_episodes_save_model == 0:
-
-                    #
-                    ### Save latest model. ###
-                    #
-                    torch.save(agent.policy.state_dict(), model_path)
-
+                try:
+                    with open(training_log_path, 'w') as f:
+                        json.dump(completed_episodes_data, f, indent=4)
+                except Exception as e:
+                    print(f"Error saving log: {e}")
 
         #
         envs.close()
@@ -3734,7 +3736,7 @@ class Main:
             previous_action = np.zeros(4, dtype=np.float64)
 
             #
-            crt_step: int = -1
+            crt_step: int = 0 # Start at 0 for warmup check
 
             #
             print(f"DEBUG: Warmup steps: {config.simulation.warmup_steps}")
@@ -3743,21 +3745,62 @@ class Main:
             while viewer_instance.is_running() and not state_obj.controls.quit_requested:
 
                 #
-                ### Step count. ###
-                #
-                crt_step += 1
-
-                #
                 ### Get observation. ###
                 #
                 obs = get_observation(previous_action)
+
+                #
+                ### Visualization of Vision and Agent Intent. ###
+                #
+                if live_vision and cv2 is not None:
+                    # Extract vision part (first vision_size elements)
+                    vision_data = obs[:vision_size]
+                    # Reshape (assuming row-major or similar, 0=white/empty, 1=obstacle?)
+                    # Need to verify value range. Assuming float 0..1 or -1..1
+                    # Usually it's -0.5 to 0.5 or 0..1.
+                    # Let's visualize normally.
+                    vision_img = vision_data.reshape((vision_height, vision_width))
+
+                    # Normalize for display (0..1 -> 0..255)
+                    vision_img_disp = cv2.resize(vision_img, (400, 400), interpolation=cv2.INTER_NEAREST)
+                    vision_img_disp = (vision_img_disp - vision_img_disp.min()) / (vision_img_disp.max() - vision_img_disp.min() + 1e-6)
+                    vision_img_disp = (vision_img_disp * 255).astype(np.uint8)
+                    vision_img_color = cv2.cvtColor(vision_img_disp, cv2.COLOR_GRAY2BGR)
+
+                    # Get raw action stats
+                    raw_action_stats = agent.get_action_statistics(obs)
+
+                    # overlay stats
+                    y_offset = 30
+                    cv2.putText(vision_img_color, "Agent Output:", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+                    for i, val in enumerate(raw_action_stats):
+                        text = f"Out[{i}]: {val:.3f}"
+                        # Color based on magnitude
+                        color = (0, 0, 255) if val < 0 else (255, 0, 0)
+                        cv2.putText(vision_img_color, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+
+                        # Bar
+                        bar_len = int(abs(val) * 50)
+                        cv2.rectangle(vision_img_color, (150, y_offset - 10), (150 + bar_len, y_offset), color, -1)
+                        y_offset += 20
+
+                    cv2.imshow("Robot Vision & Agent State", vision_img_color)
+                    cv2.waitKey(1)
 
                 #
                 ### Get action from agent. ###
                 #
                 if crt_step >= config.simulation.warmup_steps:
                     #
-                    action, log_prob = agent.select_action(obs)
+                    ### Use deterministic action for stability in play mode. ###
+                    #
+                    raw_stats = agent.get_action_statistics(obs)
+
+                    if config.robot.control_mode == "discrete_direction":
+                        action = float(np.argmax(raw_stats))
+                    else:
+                        action = raw_stats
                 else:
                     #
                     ### Get zero action. ###
@@ -3843,45 +3886,46 @@ class Main:
                     previous_action = action # Update previous action
                     target_speeds = action * max_speed
                     physics.robot_wheels_speed[:] = target_speeds
+                #
+                ### Apply action repeat only after warmup. ###
+                #
+                n_repeats = config.simulation.action_repeat if crt_step >= config.simulation.warmup_steps else 1
+
+                for _ in range(n_repeats):
+
+                    state_obj.physics.apply_additionnal_physics()
+
+                    #
+                    mujoco.mj_step(
+                        m=state_obj.mj_model,
+                        d=state_obj.mj_data,
+                        nstep=1
+                    )
 
                 #
-                ### Step. ###
+                state_obj.camera.update_viewer_camera(
+                    cam=state_obj.viewer_instance.cam,
+                    model=state_obj.mj_model,
+                    data=state_obj.mj_data
+                )
+
                 #
-                state_obj = Main.state_step(state_obj)
+                state_obj.viewer_instance.sync()
 
-                if live_vision:
-                    # Extract vision
-                    vision_data = obs[:vision_size]
-                    vision_img = vision_data.reshape((vision_width, vision_height))
+                #
+                ### Sync with real time. ###
+                #
+                start_time = time.time()
+                target_dt: float = 1.0 / 400.0
+                elapsed = time.time() - start_time
+                if elapsed < target_dt:
+                    time.sleep(target_dt - elapsed)
 
-                    # Normalize for display
-                    vision_display = cv2.normalize(vision_img, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        #
+        robot_track.plot_tracking()
 
-                    # Resize
-                    scale = 10
-                    vision_display = cv2.resize(vision_display, (vision_height * scale, vision_width * scale), interpolation=cv2.INTER_NEAREST)
-
-                    # Convert to BGR for colored text
-                    vision_display = cv2.cvtColor(vision_display, cv2.COLOR_GRAY2BGR)
-
-                    # Extract state
-                    state_vec = obs[vision_size:]
-
-                    info_text = [
-                        f"Pos: {state_vec[0]:.2f}, {state_vec[1]:.2f}, {state_vec[2]:.2f}",
-                        f"Rot: {state_vec[3]:.2f}, {state_vec[4]:.2f}, {state_vec[5]:.2f}",
-                        f"Spd: {state_vec[6]:.2f}, {state_vec[7]:.2f}, {state_vec[8]:.2f}",
-                        f"Prv: {state_vec[9]:.2f}, {state_vec[10]:.2f}, {state_vec[11]:.2f}, {state_vec[12]:.2f}"
-                    ]
-
-                    for idx, text in enumerate(info_text):
-                        cv2.putText(vision_display, text, (10, 20 + idx * 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-
-                    cv2.imshow("Robot Vision & State", vision_display)
-                    cv2.waitKey(1)
-
-            if live_vision:
-                cv2.destroyAllWindows()
+        if live_vision and cv2 is not None:
+            cv2.destroyAllWindows()
 
 
 #
@@ -3924,7 +3968,6 @@ if __name__ == "__main__":
         Main.train(
             config=config
         )
-
     #
     elif args.play:
         #

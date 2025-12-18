@@ -5,6 +5,7 @@ simulation:
   max_steps: 30000
   env_precision: 0.2
   warmup_steps: 1000
+  action_repeat: 10  # Number of physics steps per agent action (Control Frequency = Sim Frequency / action_repeat)
 
 robot:
   xml_path: "four_wheels_robot.xml"
