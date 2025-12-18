@@ -18,22 +18,20 @@ rewards:
   straight_line_penalty: 0.1
   straight_line_dist: 40.0
   pacer_speed: 0.004
-  # New velocity-based reward settings
   use_velocity_reward: true
   velocity_reward_scale: 0.1  # For absolute position: scales x_pos (0-100m range)
 
 training:
   agent_type: "ppo"
   max_episodes: 20000
-  model_path: "exp3_simpl.pth"
+  model_path: "exp4_obstacles.pth"
   load_weights_from: null
-  learning_rate: 0.0001  # Reduced from 0.0003 for stability
+  learning_rate: 0.0001
   gamma: 0.99
-  k_epochs: 3  # Reduced from 4 - less aggressive updates
+  k_epochs: 3
   eps_clip: 0.2
   update_timestep: 4000
   gae_lambda: 0.95
-  # New hyperparameters (previously hardcoded)
   entropy_coeff: 0.01  # Low: encourage policy to converge to consistent forward action
   value_loss_coeff: 0.5
   grad_clip_max_norm: 0.5

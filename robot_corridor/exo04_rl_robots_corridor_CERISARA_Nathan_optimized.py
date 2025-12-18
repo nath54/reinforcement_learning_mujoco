@@ -660,12 +660,12 @@ RENDER_HEIGHT: int = 1024
 GENERATE_CORRIDOR_PARAM: dict[str, Any] = {
     "corridor_length": ValType(200.0),
     "corridor_width": ValType(4.0),
-    "obstacles_mode": "none",
+    "obstacles_mode": "sinusoidal",
     "obstacles_mode_param": {
-        "obstacle_sep": ValType( 10.0 ),
+        "obstacle_sep": ValType( 5.0 ),
         "obstacle_size_x": ValType( 0.4 ),
         "obstacle_size_y": ValType( 0.4 ),
-        "obstacle_size_z": ValType( 0.2 ),
+        "obstacle_size_z": ValType( 0.5 ),
     }
 }
 
@@ -1536,10 +1536,10 @@ class RootWorldScene:
         #
         ### Large bounds for the scene. ###
         #
-        margin = 50.0
+        margin = 250.0
         self.env_bounds = Rect2d(
             Point2d(-margin, -config.simulation.corridor_width - margin),
-            Point2d(config.simulation.corridor_length + margin, config.simulation.corridor_width + margin)
+            Point2d(2 * config.simulation.corridor_length + margin, config.simulation.corridor_width + margin)
         )
 
         #
@@ -2247,7 +2247,7 @@ class CorridorEnv(gym.Env):
         ### Handle different control modes. ###
         #
         target_speeds: NDArray[np.float64] = np.zeros(4, dtype=np.float64)
-        max_speed = 200.0
+        max_speed = 50.0
         #
         if self.config.robot.control_mode == "discrete_direction":
             #
@@ -3365,7 +3365,7 @@ class Main:
         #
         current_model_path = os.path.join(exp_dir, "model_latest.pth")
         best_model_path = os.path.join(exp_dir, "best_model.pth")
-        training_log_path = os.path.join(exp_dir, "training.json")
+        training_log_path = os.path.join(exp_dir, "rewards.txt")
 
         #
         print("Starting training...")
@@ -3425,7 +3425,6 @@ class Main:
         #
         episode_rewards = [0.0] * num_envs
         episode_trajectories = [[] for _ in range(num_envs)]
-        completed_episodes_data = [] # List of dicts {episode, reward, trajectory}
 
         #
         time_step = 0
@@ -3515,15 +3514,18 @@ class Main:
                         episode_trajectories[idx].append(infos[idx]['robot_pos'])
 
                     if done[idx]:
-                        # Create log entry
-                        log_entry = {
-                            'episode_idx': i_episode, # Note: this is a global counter approximation
-                            'reward': float(episode_rewards[idx]),
-                            # Save trajectory only for Env 0 or sample to avoid massive files
-                            'trajectory': episode_trajectories[idx] if idx == 0 else []
-                        }
-                        completed_episodes_data.append(log_entry)
-                        interval_completed_rewards.append(log_entry['reward'])
+                        ep_reward = float(episode_rewards[idx])
+                        interval_completed_rewards.append(ep_reward)
+                        
+                        #
+                        ### Immediately append to log file (Ctrl+C safe). ###
+                        #
+                        try:
+                            with open(training_log_path, 'a') as f:
+                                f.write(f"{ep_reward}\n")
+                                f.flush()
+                        except Exception as e:
+                            print(f"Error writing log: {e}")
 
                         # Reset tracking for this env
                         episode_rewards[idx] = 0.0
@@ -3560,26 +3562,6 @@ class Main:
                 # Save latest model
                 if i_episode % 10 == 0: # Save periodically
                     torch.save(agent.policy.state_dict(), current_model_path)
-
-                # Flush logs to JSON
-                # Load existing if needed or just append?
-                # Better to overwrite with full list for now or append to file?
-                # Appending to JSON is tricky. Let's rewrite the file.
-                # To avoid memory issues with huge list, we might want to just keep last N?
-                # User asked for "json log file ... with tracking curve".
-                # If we run 20000 episodes, saving 20000 trajectories is huge.
-                # I'll save the last 100 trajectories + all stats?
-                # Let's simple save all for now (user requirement), but warn user if I could.
-                # Actually, I'll filter trajectories in the final save:
-                # Save 'reward' for ALL episodes, but 'trajectory' only for recent or best?
-                # The prompt implies "tracking curve of its position ... in json log file".
-                # I'll save all.
-
-                try:
-                    with open(training_log_path, 'w') as f:
-                        json.dump(completed_episodes_data, f, indent=4)
-                except Exception as e:
-                    print(f"Error saving log: {e}")
 
         #
         envs.close()
@@ -3815,77 +3797,91 @@ class Main:
                 #
                 ### Apply action. ###
                 #
-                #
-                ### Handle different control modes. ###
-                #
-                target_speeds: NDArray[np.float64] = np.zeros(4, dtype=np.float64)
-                max_speed = 500.0
+                if crt_step < config.simulation.warmup_steps:
+                    #
+                    ### Force zero speed during warmup. ###
+                    #
+                    physics.robot_wheels_speed[:] = 0
+                    previous_action = np.zeros(4, dtype=np.float64)
+                    
+                    #
+                    ### Print progress. ###
+                    #
+                    if crt_step % 100 == 0:
+                        print(f"Warmup: {crt_step}/{config.simulation.warmup_steps}", end="\r")
+                        
+                else:
+                    #
+                    ### Handle different control modes. ###
+                    #
+                    target_speeds: NDArray[np.float64] = np.zeros(4, dtype=np.float64)
+                    max_speed = 500.0
 
-                if config.robot.control_mode == "discrete_direction":
-                    #
-                    ### Discrete actions. ###
-                    #
-                    action_idx = int(action.item()) if isinstance(action, np.ndarray) else int(action)
-                    #
-                    if action_idx == 0: # Forward
-                        target_speeds[:] = max_speed
-                    elif action_idx == 1: # Backward
-                        target_speeds[:] = -max_speed
-                    elif action_idx == 2: # Left
-                        target_speeds[0] = -max_speed
-                        target_speeds[1] = max_speed
-                        target_speeds[2] = -max_speed
-                        target_speeds[3] = max_speed
-                    elif action_idx == 3: # Right
-                        target_speeds[0] = max_speed
-                        target_speeds[1] = -max_speed
-                        target_speeds[2] = max_speed
-                        target_speeds[3] = -max_speed
+                    if config.robot.control_mode == "discrete_direction":
+                        #
+                        ### Discrete actions. ###
+                        #
+                        action_idx = int(action.item()) if isinstance(action, np.ndarray) else int(action)
+                        #
+                        if action_idx == 0: # Forward
+                            target_speeds[:] = max_speed
+                        elif action_idx == 1: # Backward
+                            target_speeds[:] = -max_speed
+                        elif action_idx == 2: # Left
+                            target_speeds[0] = -max_speed
+                            target_speeds[1] = max_speed
+                            target_speeds[2] = -max_speed
+                            target_speeds[3] = max_speed
+                        elif action_idx == 3: # Right
+                            target_speeds[0] = max_speed
+                            target_speeds[1] = -max_speed
+                            target_speeds[2] = max_speed
+                            target_speeds[3] = -max_speed
 
-                    physics.robot_wheels_speed[:] = target_speeds
+                        physics.robot_wheels_speed[:] = target_speeds
 
-                    #
-                    ### Update previous action for state. ###
-                    #
-                    simulated_action = np.zeros(4, dtype=np.float64)
-                    if action_idx == 0: simulated_action[:] = 1.0
-                    elif action_idx == 1: simulated_action[:] = -1.0
-                    elif action_idx == 2: simulated_action = np.array([-1.0, 1.0, -1.0, 1.0])
-                    elif action_idx == 3: simulated_action = np.array([1.0, -1.0, 1.0, -1.0])
-                    #
-                    previous_action = simulated_action
+                        #
+                        ### Update previous action for state. ###
+                        #
+                        simulated_action = np.zeros(4, dtype=np.float64)
+                        if action_idx == 0: simulated_action[:] = 1.0
+                        elif action_idx == 1: simulated_action[:] = -1.0
+                        elif action_idx == 2: simulated_action = np.array([-1.0, 1.0, -1.0, 1.0])
+                        elif action_idx == 3: simulated_action = np.array([1.0, -1.0, 1.0, -1.0])
+                        #
+                        previous_action = simulated_action
 
-                elif config.robot.control_mode == "continuous_vector":
-                    #
-                    ### Continuous Vector: [Speed, Rotation] ###
-                    #
-                    speed = np.clip(action[0], -1.0, 1.0)
-                    rotation = np.clip(action[1], -1.0, 1.0)
-                    #
-                    ### Mix controls. ###
-                    #
-                    left_speed = speed + rotation
-                    right_speed = speed - rotation
-                    #
-                    raw_wheel_speeds = np.array([left_speed, right_speed, left_speed, right_speed])
-                    #
-                    ### Clip to range. ###
-                    #
-                    raw_wheel_speeds = np.clip(raw_wheel_speeds, -1.0, 1.0)
+                    elif config.robot.control_mode == "continuous_vector":
+                        #
+                        ### Continuous Vector: [Speed, Rotation] ###
+                        #
+                        speed = np.clip(action[0], -1.0, 1.0)
+                        rotation = np.clip(action[1], -1.0, 1.0)
+                        #
+                        ### Mix controls. ###
+                        #
+                        left_speed = speed + rotation
+                        right_speed = speed - rotation
+                        #
+                        raw_wheel_speeds = np.array([left_speed, right_speed, left_speed, right_speed])
+                        #
+                        ### Clip to range. ###
+                        #
+                        raw_wheel_speeds = np.clip(raw_wheel_speeds, -1.0, 1.0)
 
-                    target_speeds = raw_wheel_speeds * max_speed
-                    physics.robot_wheels_speed[:] = target_speeds
-                    #
-                    previous_action = raw_wheel_speeds
+                        target_speeds = raw_wheel_speeds * max_speed
+                        physics.robot_wheels_speed[:] = target_speeds
+                        #
+                        previous_action = raw_wheel_speeds
 
-                else: # "continuous_wheels"
-                    #
-                    ### Action is 4 continuous values for wheel speeds ###
-                    #
-                    action = np.clip(action, -1.0, 1.0)
-                    previous_action = action # Update previous action
-                    target_speeds = action * max_speed
-                    physics.robot_wheels_speed[:] = target_speeds
+                    else: # "continuous_wheels"
+                        #
+                        ### Action is 4 continuous values for wheel speeds ###
+                        #
+                        action = np.clip(action, -1.0, 1.0)
+                        previous_action = action # Update previous action
+                        target_speeds = action * max_speed
+                        physics.robot_wheels_speed[:] = target_speeds
                 #
                 ### Apply action repeat only after warmup. ###
                 #
@@ -3911,6 +3907,16 @@ class Main:
 
                 #
                 state_obj.viewer_instance.sync()
+                
+                #
+                ### Track robot position for plots. ###
+                #
+                robot_track.track()
+
+                #
+                ### Increment step counter. ###
+                #
+                crt_step += 1
 
                 #
                 ### Sync with real time. ###
