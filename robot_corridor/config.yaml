@@ -6,7 +6,7 @@ simulation:
   env_precision: 0.2
   warmup_steps: 1000
   action_repeat: 10  # Number of physics steps per agent action (Control Frequency = Sim Frequency / action_repeat)
-  num_envs: 12  # Number of parallel training environments
+  num_envs: 6  # Number of parallel training environments
 
 robot:
   xml_path: "four_wheels_robot.xml"
