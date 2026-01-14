@@ -1,0 +1,14 @@
+simulation:
+  max_steps: 30000
+  env_precision: 0.2
+
+# Pointeur vers la config spécifique du modèle
+model:
+  config_file: "agents/policy_transformer_large.yaml"
+
+# Pointeur vers la config spécifique des rewards
+rewards:
+  config_file: "rewards/velocity_focused.yaml"
+
+training:
+  lr: 0.0003
