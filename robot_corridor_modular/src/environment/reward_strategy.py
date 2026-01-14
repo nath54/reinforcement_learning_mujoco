@@ -1,18 +1,25 @@
-from abc import ABC, abstractmethod
-from src.core.types import Vec3
+from src.core.interfaces import RewardStrategyProtocol
+from src.core.types import Vec3, RewardConfig
+import numpy as np
+import numpy.typing as npt
 
-class RewardStrategy(ABC):
-    @abstractmethod
-    def compute(self, pos: Vec3, velocity: Vec3, action: float) -> float:
-        pass
+class VelocityReward(RewardStrategyProtocol):
+    def __init__(self, config: RewardConfig):
+        self.cfg = config
 
-class VelocityReward(RewardStrategy):
-    def __init__(self, scale: float):
-        self.scale = scale
-
-    def compute(self, pos: Vec3, velocity: Vec3, action: float) -> float:
-        return velocity.x * self.scale
-
-class DistanceReward(RewardStrategy):
-    def compute(self, pos: Vec3, velocity: Vec3, action: float) -> float:
-        return pos.x * 0.1
+    def compute(self, pos: Vec3, velocity: Vec3, action: npt.NDArray[np.float64], step_count: int, is_stuck: bool, is_backward: bool) -> float:
+        reward = 0.0
+        
+        # Main component
+        if self.cfg.use_velocity_reward:
+             reward += pos.x * self.cfg.velocity_reward_scale
+        else:
+             reward += pos.x - (self.cfg.pacer_speed * step_count)
+             
+        # Penalties
+        if is_stuck:
+            reward += self.cfg.stuck_penalty
+            if is_backward:
+                reward += self.cfg.backward_escape_bonus
+                
+        return reward

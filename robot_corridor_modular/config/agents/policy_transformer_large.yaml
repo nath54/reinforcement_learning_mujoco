@@ -3,3 +3,8 @@ n_heads: 8
 n_layers: 6
 embedding_dim: 128
 dropout: 0.1
+state_vector_dim: 13
+action_std_init: 0.5
+action_std_min: 0.01
+action_std_max: 1.0
+control_mode: "discrete_direction"

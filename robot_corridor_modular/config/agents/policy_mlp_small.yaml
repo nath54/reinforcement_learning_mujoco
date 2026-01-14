@@ -1,0 +1,9 @@
+type: "mlp"
+hidden_sizes: [128, 64]
+state_vector_dim: 13
+action_std_init: 0.5
+action_std_min: 0.01
+action_std_max: 1.0
+actor_hidden_gain: 1.414
+actor_output_gain: 0.01
+control_mode: "discrete_direction" # Options: "continuous_wheels", "discrete_direction", "continuous_vector"
