@@ -1,0 +1,74 @@
+# Complete configuration example showing all available options
+# This can be used as a reference or starting point
+
+simulation:
+  corridor_length: 100.0           # Length of corridor in meters
+  corridor_width: 3.0              # Width of corridor in meters
+  robot_view_range: 4.0            # Robot's vision range in meters
+  max_steps: 30000                 # Maximum steps per episode
+  env_precision: 0.2               # Grid precision for collision detection
+  warmup_steps: 1000               # Physics warmup steps after reset
+  action_repeat: 10                # Number of physics steps per action
+  num_envs: 6                      # Number of parallel environments for training
+  obstacles_mode: "sinusoidal"     # Options: "none", "sinusoidal", "double_sinusoidal", "random"
+  obstacles_mode_param:
+    obstacle_sep: 5.0              # Separation between obstacles
+    obstacle_size_x: 0.4           # Obstacle size in X (can be tuple for random)
+    obstacle_size_y: 0.4           # Obstacle size in Y
+    obstacle_size_z: 0.5           # Obstacle height
+
+robot:
+  xml_path: "xml/four_wheels_robot.xml"  # Path to robot URDF/XML file
+  action_smoothing_k: 5              # Number of actions to average (for continuous modes)
+  control_mode: "discrete_direction" # Options: "discrete_direction", "continuous_vector", "continuous_wheels"
+  max_speed: 10.0                    # Maximum wheel speed
+
+# Option 1: Use inline model config
+model:
+  type: "mlp"                      # Options: "mlp", "transformer"
+  hidden_sizes: [128, 64]          # Hidden layer sizes (for MLP)
+  state_vector_dim: 13             # Dimension of state vector (position, velocity, etc.)
+  action_std_init: 0.5             # Initial action standard deviation (continuous only)
+  action_std_min: 0.01             # Minimum action std
+  action_std_max: 1.0              # Maximum action std
+  actor_hidden_gain: 1.414         # Orthogonal init gain for hidden layers
+  actor_output_gain: 0.01          # Orthogonal init gain for output layer
+  control_mode: "discrete_direction"  # Must match robot.control_mode
+
+# Option 2: Point to external model config (comment out above and uncomment below)
+# model:
+#   config_file: "agents/policy_mlp_small.yaml"
+
+# Option 1: Use inline rewards config
+rewards:
+  type: "velocity"                    # Reward type identifier
+  goal: 100.0                         # Bonus for reaching goal
+  collision: -0.05                    # Penalty for collision (not fully implemented)
+  straight_line_penalty: 0.1          # Penalty for not moving straight
+  straight_line_dist: 40.0            # Distance threshold for straight line
+  pacer_speed: 0.004                  # Speed of "pacer" for non-velocity reward
+  use_velocity_reward: true           # Use velocity-based reward (vs pacer-based)
+  velocity_reward_scale: 0.1          # Scale factor for velocity reward
+  stuck_penalty: -0.1                 # Penalty when robot is stuck
+  stuck_x_velocity_threshold: 0.05    # X velocity below which robot is considered stuck
+  backward_escape_bonus: 0.02         # Bonus for going backward when stuck
+
+# Option 2: Point to external rewards config (comment out above and uncomment below)
+# rewards:
+#   config_file: "rewards/velocity_focused.yaml"
+
+training:
+  agent_type: "ppo"                # RL algorithm (currently only PPO)
+  max_episodes: 20000              # Maximum training episodes
+  model_path: "ppo_robot.pth"      # Path to save/load model
+  load_weights_from: null          # Path to load initial weights (null = train from scratch)
+  learning_rate: 0.0003            # Learning rate for optimizer
+  gamma: 0.99                      # Discount factor
+  k_epochs: 3                      # Number of PPO update epochs
+  eps_clip: 0.2                    # PPO clipping parameter
+  update_timestep: 4000            # Steps between policy updates
+  gae_lambda: 0.95                 # GAE lambda parameter
+  entropy_coeff: 0.01              # Entropy coefficient (exploration)
+  value_loss_coeff: 0.5            # Value loss coefficient
+  grad_clip_max_norm: 0.5          # Gradient clipping max norm
+  reward_scale: 1.0                # Global reward scaling factor
