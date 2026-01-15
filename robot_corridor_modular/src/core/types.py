@@ -16,7 +16,7 @@ class Point2d:
     y: float
 
     def dist(self, p: "Point2d") -> float:
-        return (p.x - self.x) ** 2 + (p.y - self.y) ** 2
+        return ((p.x - self.x) ** 2 + (p.y - self.y) ** 2) ** 0.5
 
 @dataclass
 class Rect2d:
@@ -32,8 +32,32 @@ class Rect2d:
     def corner_bottom_left(self) -> Point2d:
         return Point2d(self.corner_top_left.x, self.corner_bottom_right.y)
 
+    def point_inside(self, p: Point2d) -> bool:
+        """Check if point is inside rectangle"""
+        return (
+            p.x >= self.corner_top_left.x and
+            p.x <= self.corner_bottom_right.x and
+            p.y >= self.corner_top_left.y and
+            p.y <= self.corner_bottom_right.y
+        )
+
+    def rect_collision(self, r: "Rect2d") -> bool:
+        """Check if two rectangles collide"""
+        return (
+            self.point_inside(r.corner_top_left) or
+            self.point_inside(r.corner_top_right) or
+            self.point_inside(r.corner_bottom_left) or
+            self.point_inside(r.corner_bottom_right)
+        ) or (
+            r.point_inside(self.corner_top_left) or
+            r.point_inside(self.corner_top_right) or
+            r.point_inside(self.corner_bottom_left) or
+            r.point_inside(self.corner_bottom_right)
+        )
+
 @dataclass
 class ValType:
+    """Represents either a fixed value or a random range"""
     value: float | tuple[float, float]
 
     def get_value(self) -> float:
