@@ -30,7 +30,7 @@ class ActorCritic(nn.Module):
     def evaluate(self, state: torch.Tensor, action: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         logits = self.actor(state)
         values = self.critic(state)
-        
+
         if self.control_mode == "discrete_direction":
             dist = torch.distributions.Categorical(logits=logits)
             log_probs = dist.log_prob(action.squeeze() if action.ndim > 1 else action)
@@ -42,11 +42,11 @@ class PPOAgent:
         self.policy = ActorCritic(config, state_dim, action_dim).to("cuda" if torch.cuda.is_available() else "cpu")
         self.optimizer = optim.Adam(self.policy.parameters(), lr=lr)
         self.device = next(self.policy.parameters()).device
-    
+
     def select_action(self, state: npt.NDArray[np.float64]) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         with torch.no_grad():
             t_state = torch.FloatTensor(state).to(self.device).unsqueeze(0)
             action, log_prob = self.policy.act(t_state)
         return action.cpu().numpy(), log_prob.cpu().numpy()
-    
+
     # Update logic (standard PPO) omitted for brevity, strictly follows original logic

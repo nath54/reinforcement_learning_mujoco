@@ -7,11 +7,11 @@ class EnvironmentProtocol(Protocol):
     def step(self, action: npt.NDArray[np.float64]) -> Tuple[npt.NDArray[np.float64], float, bool, bool, dict[str, Any]]:
         # ...
         pass
-    
+
     def reset(self) -> Tuple[npt.NDArray[np.float64], dict[str, Any]]:
         # ...
         pass
-        
+
     def close(self) -> None:
         # ...
         pass

@@ -20,7 +20,7 @@ class Robot:
             'compiler': None, 'option': None, 'default': None,
             'asset': None, 'robot_body': None, 'actuators': None
         }
-        
+
         for child in self.root:
             if child.tag == 'compiler': components['compiler'] = child
             elif child.tag == 'option': components['option'] = child
@@ -58,7 +58,7 @@ class Robot:
         for geom in robot_body.iter('geom'):
             if 'chassis' in geom.get('name', ''):
                 geom.set('material', 'mat_chassis_violet')
-        
+
         for body in robot_body.iter('body'):
             if body.get('name', '').startswith('wheel_'):
                 for geom in body.iter('geom'):

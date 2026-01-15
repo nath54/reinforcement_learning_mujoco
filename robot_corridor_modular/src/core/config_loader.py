@@ -12,7 +12,7 @@ def load_config(main_config_path: str) -> GlobalConfig:
 
     with open(main_config_path, 'r') as f:
         main_cfg_dict = yaml.safe_load(f)
-    
+
     base_path = Path(main_config_path).parent
 
     def _merge_sub_config(section_key: str, path_key: str = 'config_file'):
@@ -34,13 +34,13 @@ def load_config(main_config_path: str) -> GlobalConfig:
     # Load pointers
     _merge_sub_config('model')
     _merge_sub_config('rewards')
-    # Simulation/Environment config is often standalone or pointed to. 
-    # Let's assume we might have an 'environment' key in simulation or similar, 
+    # Simulation/Environment config is often standalone or pointed to.
+    # Let's assume we might have an 'environment' key in simulation or similar,
     # but based on the prompt structure, simulation params are in env config.
     # We will try to load a 'simulation' subconfig if 'config_file' exists there.
     if 'simulation' in main_cfg_dict and 'config_file' in main_cfg_dict['simulation']:
          _merge_sub_config('simulation')
-    
+
     # Clean up 'config_file' keys to avoid kwargs errors in dataclasses
     for key in main_cfg_dict:
         if isinstance(main_cfg_dict[key], dict) and 'config_file' in main_cfg_dict[key]:

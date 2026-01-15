@@ -11,7 +11,7 @@ class PolicyTransformer(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x shape: (batch, input_dim) -> (batch, 1, input_dim) for seq len 1
-        x = self.embedding(x).unsqueeze(1) 
+        x = self.embedding(x).unsqueeze(1)
         x = self.transformer(x)
         x = x.squeeze(1)
         return self.head(x)

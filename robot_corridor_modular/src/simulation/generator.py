@@ -23,18 +23,18 @@ class Corridor:
         obstacles_mode_param: Optional[Dict[str, Any]] = None,
         corridor_shift_x: float = -3.0,
     ) -> Dict[str, Any]:
-        
+
         components_body: List[ET.Element] = []
         environment_rects: List[Rect2d] = []
         obstacles_mode_param_ = obstacles_mode_param if obstacles_mode_param else {}
-        
+
         # Ground
         components_body.append(create_geom("global_floor", "plane", Vec3(0,0,0), Vec3(corridor_length*10, corridor_length*10, 1.0)))
 
         # Walls logic (Simplified from original for brevity, but logically identical)
         wall_height = 3.0
         wall_width = 0.3
-        
+
         # Wall 1 (Negative Y)
         w1_pos = Vec3(corridor_length, -corridor_width, wall_height)
         w1_size = Vec3(corridor_length - corridor_shift_x, wall_width, wall_height)
@@ -64,7 +64,7 @@ class Corridor:
                 components_body.append(create_geom(f"obstacle_{i}", "box", pos, Vec3(sx, sy, sz)))
                 environment_rects.append(Rect2d(Point2d(current_x - sx, y_pos - sy), Point2d(current_x + sx, y_pos + sy), sz * 2))
                 current_x += sx + obs_sep.get_max_value()
-        
+
         return {'body': components_body, 'environment_rects': environment_rects, 'asset': None}
 
 class SceneBuilder:
@@ -96,7 +96,7 @@ class SceneBuilder:
         # Assemble XML
         root = ET.Element('mujoco', model='robot_scene')
         root.append(ET.Element('size', njmax='1000', nconmax='500'))
-        
+
         # Physics Option
         root.append(ET.Element('option', timestep='0.01', gravity='0 0 -9.81', solver='Newton', iterations='500'))
 
@@ -104,7 +104,7 @@ class SceneBuilder:
         asset = ET.Element('asset')
         for texture in self.robot.create_textures().values(): asset.append(texture)
         for mat in self.robot.create_enhanced_materials().values(): asset.append(mat)
-        if robot_comps['asset']: 
+        if robot_comps['asset']:
             for a in robot_comps['asset']: asset.append(a)
         root.append(asset)
 
@@ -112,7 +112,7 @@ class SceneBuilder:
         worldbody = ET.Element('worldbody')
         if corridor_comps['body']:
             for b in corridor_comps['body']: worldbody.append(b)
-        
+
         if robot_comps['robot_body']:
             self.robot.enhance_robot_visuals(robot_comps['robot_body'])
             robot_comps['robot_body'].set('pos', '0 0 0.5') # Reset pos
