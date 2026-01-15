@@ -7,13 +7,17 @@ import mujoco
 from src.core.types import Vec3, Point2d, Rect2d, ValType, GlobalConfig
 from src.simulation.robot import Robot
 
-def create_geom(name: str, geom_type: str, pos: Vec3, size: Vec3) -> ET.Element:
-    """Create a geometry element"""
+def create_geom(name: str, geom_type: str, pos: Vec3, size: Vec3, extra_attribs: Optional[Dict[str, str]] = None) -> ET.Element:
     new_geom = ET.Element('geom')
     new_geom.set('name', name)
     new_geom.set('type', geom_type)
     new_geom.set('size', f'{size.x} {size.y} {size.z}')
     new_geom.set('pos', f'{pos.x} {pos.y} {pos.z}')
+
+    if extra_attribs:
+        for k, v in extra_attribs.items():
+            new_geom.set(k, v)
+
     return new_geom
 
 class Corridor:
@@ -24,6 +28,7 @@ class Corridor:
         obstacles_mode: str = "none",
         obstacles_mode_param: Optional[Dict[str, Any]] = None,
         corridor_shift_x: float = -3.0,
+        ground_friction: str = "1 0.005 0.0001"
     ) -> Dict[str, Any]:
         """Generate corridor with walls and obstacles"""
 
@@ -35,7 +40,8 @@ class Corridor:
         components_body.append(
             create_geom(
                 "global_floor", "plane", Vec3(0, 0, 0),
-                Vec3(corridor_length * 10, corridor_length * 10, 1.0)
+                Vec3(corridor_length * 10, corridor_length * 10, 1.0),
+                extra_attribs={"friction": ground_friction}
             )
         )
 
@@ -191,7 +197,8 @@ class SceneBuilder:
             self.config.simulation.corridor_length,
             self.config.simulation.corridor_width,
             self.config.simulation.obstacles_mode,
-            self.config.simulation.obstacles_mode_param
+            self.config.simulation.obstacles_mode_param,
+            ground_friction=self.config.simulation.ground_friction
         )
         self.environment_rects = cast(List[Rect2d], corridor_comps.get('environment_rects', []))
         robot_comps = self.robot.extract_robot_from_xml()
@@ -211,7 +218,12 @@ class SceneBuilder:
         root.append(ET.Element('size', njmax='1000', nconmax='500'))
 
         # Physics Option
-        root.append(ET.Element('option', timestep='0.01', gravity='0 0 -9.81', solver='Newton', iterations='500'))
+        root.append(ET.Element('option',
+            timestep=str(self.config.simulation.dt),
+            gravity=self.config.simulation.gravity,
+            solver=self.config.simulation.solver,
+            iterations=str(self.config.simulation.iterations)
+        ))
 
         # Assets
         asset = ET.Element('asset')

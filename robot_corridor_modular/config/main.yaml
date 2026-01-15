@@ -13,6 +13,11 @@ simulation:
     obstacle_size_x: 0.4
     obstacle_size_y: 0.4
     obstacle_size_z: 0.5
+  gravity: "0 0 -0.20"     # Low gravity makes turning easier (matches original)
+  dt: 0.01
+  solver: "Newton"
+  iterations: 500
+  ground_friction: "1 0.005 0.0001"
 
 robot:
   xml_path: "xml/four_wheels_robot.xml"

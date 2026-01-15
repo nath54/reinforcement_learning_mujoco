@@ -71,7 +71,7 @@ class Physics:
         acceleration_factor: float = 0.0,
         rotation_factor: float = 0.0,
         acceleration_force: float = 0.15,
-        rotation_force: float = 0.05,
+        rotation_force: float = 15000000,
         decceleration_factor: float = 1.0,
         max_front_wheel_speeds: float = 200.0,
         max_back_wheel_speeds: float = 100.0,
@@ -104,12 +104,13 @@ class Physics:
             self.robot_wheels_speed[:] *= decceleration_factor
 
         # Clamp values
-        self.robot_wheels_speed[0:2] = np.clip(
-            self.robot_wheels_speed[0:2], -max_front_wheel_speeds, max_front_wheel_speeds
-        )
-        self.robot_wheels_speed[2:4] = np.clip(
-            self.robot_wheels_speed[2:4], -max_back_wheel_speeds, max_back_wheel_speeds
-        )
+        if abs(acceleration_factor) > 0.00001:
+            self.robot_wheels_speed[0:2] = np.clip(
+                self.robot_wheels_speed[0:2], -max_front_wheel_speeds, max_front_wheel_speeds
+            )
+            self.robot_wheels_speed[2:4] = np.clip(
+                self.robot_wheels_speed[2:4], -max_back_wheel_speeds, max_back_wheel_speeds
+            )
 
         # Apply to MuJoCo
         self.data_scene.ctrl = self.robot_wheels_speed

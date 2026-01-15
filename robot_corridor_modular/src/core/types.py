@@ -86,6 +86,13 @@ class SimulationConfig:
     obstacles_mode: str = "sinusoidal"
     obstacles_mode_param: dict[str, Any] = field(default_factory=dict)
 
+    # Physics settings (defaults match original script logic)
+    gravity: str = "0 0 -0.20"     # Original low gravity
+    dt: float = 0.01               # Timestep
+    solver: str = "Newton"         # Physics solver
+    iterations: int = 500          # Solver iterations
+    ground_friction: str = "1 0.005 0.0001" # Sliding, Torsional, Rolling friction
+
 @dataclass
 class RobotConfig:
     xml_path: str = "four_wheels_robot.xml"
