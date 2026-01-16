@@ -132,16 +132,25 @@ class TrainingConfig:
     value_loss_coeff: float = 0.5
     grad_clip_max_norm: float = 0.5
     reward_scale: float = 1.0
+    # Early stopping
+    early_stopping_enabled: bool = False
+    early_stopping_consecutive_successes: int = 50
+    early_stopping_success_threshold: float = 90.0  # Reward > this = success
 
 @dataclass
 class ModelConfig:
-    type: str = "mlp"
+    type: str = "mlp"  # "mlp", "temporal_mlp", "ft_transformer"
+    input_mode: str = "single_head"  # "single_head" or "multi_head"
     hidden_sizes: list[int] = field(default_factory=lambda: [256, 256])
     n_heads: int = 4
     n_layers: int = 2
-    embedding_dim: int = 128
+    embedding_dim: int = 64
     dropout: float = 0.1
-    state_vector_dim: int = 13
+    # State configuration
+    state_history_length: int = 1  # M frames of history (1 = current only)
+    include_goal: bool = False  # Include goal-relative coordinates
+    state_vector_dim: int = 13  # Will be computed if include_goal/history changes
+    # Action configuration
     action_std_init: float = 0.5
     action_std_min: float = 0.01
     action_std_max: float = 1.0

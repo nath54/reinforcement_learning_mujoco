@@ -12,27 +12,32 @@ def main() -> None:
     parser.add_argument('--train', action='store_true', help='Train the agent')
     parser.add_argument('--play', action='store_true', help='Play with trained model')
     parser.add_argument('--interactive', action='store_true', help='Interactive keyboard control')
+    parser.add_argument('--pipeline', type=str, default=None, help='Run training pipeline from yaml')
     parser.add_argument('--render_mode', action='store_true', help='Replay saved controls')
     parser.add_argument('--model_path', type=str, default=None, help='Model path for play mode')
     parser.add_argument('--live_vision', action='store_true', help='Show live vision window')
     args = parser.parse_args()
 
-    # Load configuration
-    cfg = load_config(args.config)
-
-    if args.train:
+    if args.pipeline:
+        from src.main_pipeline import run_pipeline
+        run_pipeline(args.pipeline)
+    elif args.train:
+        # Load configuration
+        cfg = load_config(args.config)
         try:
             mp.set_start_method('spawn', force=True)
         except RuntimeError:
             pass
         train(cfg)
     elif args.play:
+        cfg = load_config(args.config)
         model_path = args.model_path if args.model_path else cfg.training.model_path
         play(cfg, model_path, args.live_vision)
     elif args.interactive:
+        cfg = load_config(args.config)
         interactive(cfg, args.render_mode)
     else:
-        print("Please specify mode: --train, --play, or --interactive")
+        print("Please specify mode: --train, --play, --interactive, or --pipeline")
 
 if __name__ == "__main__":
     main()

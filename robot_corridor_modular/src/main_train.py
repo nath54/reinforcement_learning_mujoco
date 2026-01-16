@@ -22,13 +22,21 @@ def make_env(config: GlobalConfig) -> CorridorEnv:
     return CorridorEnv(config)
 
 
-def train(config: GlobalConfig) -> None:
-    """Train the PPO agent with parallel environments"""
+def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
+    """Train the PPO agent with parallel environments
+    
+    Args:
+        config: Global configuration
+        exp_dir_override: Override output directory (for pipeline mode)
+    """
     print("Starting training...")
 
     # Create experiment directory
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    exp_dir = os.path.join("trainings_exp", timestamp)
+    if exp_dir_override:
+        exp_dir = exp_dir_override
+    else:
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        exp_dir = os.path.join("trainings_exp", timestamp)
     os.makedirs(exp_dir, exist_ok=True)
     print(f"Experiment data: {exp_dir}")
 
@@ -93,6 +101,12 @@ def train(config: GlobalConfig) -> None:
     episode_steps = [0] * num_envs
     i_episode = 0
     best_reward = -float('inf')
+    
+    # Early stopping tracking
+    consecutive_successes = 0
+    success_threshold = getattr(config.training, 'early_stopping_success_threshold', 90.0)
+    required_successes = getattr(config.training, 'early_stopping_consecutive_successes', 50)
+    early_stopping_enabled = getattr(config.training, 'early_stopping_enabled', False)
 
     state = envs.reset()
 
@@ -178,6 +192,18 @@ def train(config: GlobalConfig) -> None:
             # Save latest periodically
             if i_episode % 10 == 0:
                 torch.save(agent.policy.state_dict(), current_model_path)
+            
+            # Early stopping check
+            if early_stopping_enabled:
+                if avg_reward >= success_threshold:
+                    consecutive_successes += 1
+                    print(f"Success! ({consecutive_successes}/{required_successes} consecutive)")
+                else:
+                    consecutive_successes = 0
+                
+                if consecutive_successes >= required_successes:
+                    print(f"\nEarly stopping triggered! {required_successes} consecutive successes achieved.")
+                    break
 
     pbar.close()
     envs.close()
