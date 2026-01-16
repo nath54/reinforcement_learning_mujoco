@@ -99,6 +99,10 @@ class CorridorEnv(gym.Env):
         self.action_history.clear()
         self.previous_x_pos = self.data.xpos[robot_id][0]
 
+        # Reset reward strategy state (for forward progress tracking)
+        if hasattr(self.reward_strategy, 'reset'):
+            self.reward_strategy.reset()
+
         return self.get_observation(), {}
 
     def step(self, action: npt.NDArray[np.float64]) -> Tuple[npt.NDArray[np.float64], float, bool, bool, dict[str, Any]]:
