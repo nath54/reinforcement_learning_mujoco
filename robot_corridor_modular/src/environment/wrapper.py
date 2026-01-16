@@ -197,6 +197,10 @@ class CorridorEnv(gym.Env):
             total_reward += step_reward
             if terminated or truncated: break
 
+        # Enforce max_steps truncation
+        if self.current_step_count >= self.config.simulation.max_steps:
+            truncated = True
+
         # 3. Observation & Info
         rid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
         pos_arr = [self.data.xpos[rid][0], self.data.xpos[rid][1], self.data.xpos[rid][2]]

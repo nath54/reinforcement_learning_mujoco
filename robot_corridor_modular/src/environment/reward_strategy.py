@@ -12,9 +12,14 @@ class VelocityReward(RewardStrategyProtocol):
 
         # Main component
         if self.cfg.use_velocity_reward:
-             reward += pos.x * self.cfg.velocity_reward_scale
+            if getattr(self.cfg, 'use_true_velocity', False):
+                # Use actual X velocity (reward forward movement)
+                reward += velocity.x * self.cfg.velocity_reward_scale
+            else:
+                # Legacy: use position (accumulates over time)
+                reward += pos.x * self.cfg.velocity_reward_scale
         else:
-             reward += pos.x - (self.cfg.pacer_speed * step_count)
+            reward += pos.x - (self.cfg.pacer_speed * step_count)
 
         # Penalties
         if is_stuck:

@@ -113,6 +113,7 @@ class RewardConfig:
     stuck_penalty: float = -0.1
     stuck_x_velocity_threshold: float = 0.05
     backward_escape_bonus: float = 0.02
+    use_true_velocity: bool = False  # If True, use actual velocity instead of position
 
 @dataclass
 class TrainingConfig:
