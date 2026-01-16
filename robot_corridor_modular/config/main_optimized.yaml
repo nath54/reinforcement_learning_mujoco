@@ -12,7 +12,7 @@ simulation:
   corridor_length: 100.0
   corridor_width: 3.0
   robot_view_range: 4.0
-  max_steps: 5000              # Reduced from 30000 - caps episode length
+  max_steps: 20000             # Increased from 5000 - gives 4000 agent steps (20000/5)
   env_precision: 0.2
   warmup_steps: 1000           # Kept at 1000 (robot needs to stabilize after spawn)
   action_repeat: 5             # Reduced from 10 - faster episode completion
