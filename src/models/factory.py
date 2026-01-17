@@ -20,11 +20,11 @@ def create_policy_network(config: ModelConfig, input_dim: int, output_dim: int) 
 def create_state_encoder(config: ModelConfig, state_vector_dim: int) -> nn.Module:
     """
     Create a state encoder based on config.
-    
+
     Args:
         config: Model configuration
         state_vector_dim: Total dimension of state vector
-        
+
     Returns:
         Encoder module with .output_dim attribute
     """

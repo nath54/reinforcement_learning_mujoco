@@ -24,7 +24,7 @@ def make_env(config: GlobalConfig) -> CorridorEnv:
 
 def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
     """Train the PPO agent with parallel environments
-    
+
     Args:
         config: Global configuration
         exp_dir_override: Override output directory (for pipeline mode)
@@ -101,7 +101,7 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
     episode_steps = [0] * num_envs
     i_episode = 0
     best_reward = -float('inf')
-    
+
     # Early stopping tracking
     consecutive_successes = 0
     success_threshold = getattr(config.training, 'early_stopping_success_threshold', 90.0)
@@ -192,7 +192,7 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
             # Save latest periodically
             if i_episode % 10 == 0:
                 torch.save(agent.policy.state_dict(), current_model_path)
-            
+
             # Early stopping check
             if early_stopping_enabled:
                 if avg_reward >= success_threshold:
@@ -200,7 +200,7 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
                     print(f"Success! ({consecutive_successes}/{required_successes} consecutive)")
                 else:
                     consecutive_successes = 0
-                
+
                 if consecutive_successes >= required_successes:
                     print(f"\nEarly stopping triggered! {required_successes} consecutive successes achieved.")
                     break
