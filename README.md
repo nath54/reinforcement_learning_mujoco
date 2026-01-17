@@ -1,7 +1,7 @@
 # Robot Corridor Modular - Complete Implementation
 
 ## Overview
-This is a fully modular, type-hinted, and YAML-configurable implementation of the robot corridor RL training environment. All features from the original monolithic script have been preserved and organized into a clean, maintainable structure.
+This is a fully modular, type-hinted, and YAML-configurable implementation of the robot corridor RL training environment.
 
 ## Directory Structure
 
