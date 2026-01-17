@@ -1,17 +1,33 @@
+
+from typing import Any, Optional
+
 import json
 import mujoco
-from typing import Any, Optional
+
 from src.simulation.physics import Physics
 from src.simulation.sensors import Camera
 
+#
 CTRL_SAVE_PATH: str = "saved_control.json"
 
+
+#
 class Controls:
-    def __init__(self, physics: Physics, camera: Camera, render_mode: bool = False) -> None:
+
+    #
+    def __init__(
+        self,
+        physics: Physics,
+        camera: Camera,
+        render_mode: bool = False
+    ) -> None:
+
+        # Store parameters
         self.physics = physics
         self.camera = camera
         self.render_mode = render_mode
 
+        #
         self.quit_requested: bool = False
         self.display_camera_info: bool = False
 
@@ -23,16 +39,31 @@ class Controls:
         # Logic to clear conflicting keys
         self.easy_control: set[int] = {32, 262, 263, 264, 265}
 
+    #
     def new_frame(self, cam: Any) -> None:
+        """
+        Increment frame counter.
+        """
+
         self.current_frame += 1
 
+    #
     def apply_controls_each_frame_render_mode(self) -> None:
-        """Replay recorded controls."""
+        """
+        Replay recorded controls.
+        """
+
         if str(self.current_frame) in self.controls_history:
             for k in self.controls_history[str(self.current_frame)]:
                 self.key_callback(keycode=k, render_mode=True)
 
+    #
     def apply_controls_each_frame(self) -> None:
+        """
+        Apply controls.
+        """
+
+        # If render mode, replay recorded controls
         if self.render_mode:
             self.apply_controls_each_frame_render_mode()
 
@@ -53,7 +84,20 @@ class Controls:
         elif 32 in self.key_pressed:
             self.physics.apply_control(decceleration_factor=0.2)
 
-    def key_callback(self, keycode: int, render_mode: bool = False) -> None:
+    #
+    def key_callback(
+        self,
+        keycode: int,
+        render_mode: bool = False
+    ) -> None:
+
+        """
+        Args:
+            keycode: Keycode
+            render_mode: Whether to apply controls in render mode
+        """
+
+        # Ensure not in render mode
         if not render_mode:
             # Record history
             if str(self.current_frame) not in self.controls_history:
@@ -71,6 +115,7 @@ class Controls:
             elif keycode == ord('q') or keycode == ord('Q') or keycode == 256: # ESC
                 self.quit_requested = True
 
+        # If render mode, do not apply controls
         if self.render_mode and not render_mode:
             return
 

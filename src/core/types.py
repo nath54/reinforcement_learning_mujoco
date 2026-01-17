@@ -1,8 +1,17 @@
-from dataclasses import dataclass, field
-import random
+"""
+Types module
+
+This module defines dataclasses for configuration and other types used in the project.
+"""
+
 from typing import Any, Optional
+from dataclasses import dataclass, field
+
+import random
+
 import numpy as np
 from numpy.typing import NDArray
+
 
 @dataclass
 class Vec3:

@@ -23,10 +23,15 @@ from src.main_play import play
 from src.main_interactive import interactive
 from src.main_pipeline import run_pipeline
 
-#
+
+# Parse command line arguments
 def parse_args() -> argparse.Namespace:
-    #
+    """
+    Parse command line arguments.
+    """
+
     parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Robot Corridor RL Training")
+
     #
     parser.add_argument('--config', type=str, default='config/main.yaml', help='Config file path')
     parser.add_argument('--train', action='store_true', help='Train the agent')
@@ -36,14 +41,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--render_mode', action='store_true', help='Replay saved controls')
     parser.add_argument('--model_path', type=str, default=None, help='Model path for play mode')
     parser.add_argument('--live_vision', action='store_true', help='Show live vision window')
+
     #
     args: argparse.Namespace = parser.parse_args()
-    #
+
     return args
 
 
-#
+# Main entry point
 def main() -> None:
+    """
+    Main function.
+    """
 
     # Parse arguments
     args: argparse.Namespace = parse_args()
@@ -88,7 +97,8 @@ def main() -> None:
         #
         print("Please specify mode: --train, --play, --interactive, or --pipeline")
 
-#
+
+# Execute main function
 if __name__ == "__main__":
     #
     main()

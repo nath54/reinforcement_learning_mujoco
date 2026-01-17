@@ -1,5 +1,5 @@
 """
-Temporal MLP Encoder
+Temporal MLP Encoder Module
 
 Uses 1D convolutions over the history dimension to capture temporal patterns,
 followed by MLP for final encoding. More efficient than transformers for
@@ -8,9 +8,9 @@ simple temporal dependencies.
 
 import torch
 import torch.nn as nn
-from typing import Optional
 
 
+#
 class TemporalMLP(nn.Module):
     """
     Temporal encoder using 1D convolutions over history frames.
@@ -19,6 +19,7 @@ class TemporalMLP(nn.Module):
     Output: (batch, output_dim)
     """
 
+    #
     def __init__(
         self,
         history_length: int,
@@ -27,12 +28,16 @@ class TemporalMLP(nn.Module):
         action_dim: int = 4,
         hidden_dim: int = 64,
         output_dim: int = 64
-    ):
+    ) -> None:
+
+        # Initialize parent
         super().__init__()
-        self.history_length = history_length
-        self.features_per_frame = features_per_frame
-        self.goal_dim = goal_dim
-        self.action_dim = action_dim
+
+        # Store parameters
+        self.history_length: int = history_length
+        self.features_per_frame: int = features_per_frame
+        self.goal_dim: int = goal_dim
+        self.action_dim: int = action_dim
 
         # 1D conv over time dimension
         # Input: (batch, features_per_frame, history_length)
@@ -47,7 +52,9 @@ class TemporalMLP(nn.Module):
         self.pool = nn.AdaptiveAvgPool1d(1)
 
         # Process goal and action separately if present
-        extra_dim = 0
+        #
+        extra_dim: int = 0
+
         if goal_dim > 0:
             self.goal_encoder = nn.Sequential(
                 nn.Linear(goal_dim, hidden_dim // 2),
@@ -69,10 +76,13 @@ class TemporalMLP(nn.Module):
             nn.Linear(hidden_dim, output_dim)
         )
 
-        self.output_dim = output_dim
+        self.output_dim: int = output_dim
 
+    #
     def forward(self, state: torch.Tensor) -> torch.Tensor:
         """
+        Forward pass.
+
         Args:
             state: (batch, total_dim) flattened state
                    Structure: [history_features, goal, action]
@@ -80,38 +90,44 @@ class TemporalMLP(nn.Module):
         Returns:
             (batch, output_dim) encoded state
         """
-        batch_size = state.shape[0]
+
+        # Get batch size
+        batch_size: int = state.shape[0]
 
         # Split state
-        history_dim = self.history_length * self.features_per_frame
+        history_dim: int = self.history_length * self.features_per_frame
         history_flat = state[:, :history_dim]
 
-        idx = history_dim
+        idx: int = history_dim
+        #
+        goal: torch.Tensor
+        #
         if self.goal_dim > 0:
             goal = state[:, idx:idx + self.goal_dim]
             idx += self.goal_dim
 
-        action = state[:, idx:idx + self.action_dim]
+        action: torch.Tensor = state[:, idx:idx + self.action_dim]
 
         # Reshape history for conv: (batch, features, time)
-        history = history_flat.view(batch_size, self.history_length, self.features_per_frame)
+        history: torch.Tensor = history_flat.view(batch_size, self.history_length, self.features_per_frame)
         history = history.permute(0, 2, 1)  # (batch, features, time)
 
         # Apply temporal conv
-        temporal_features = self.temporal_conv(history)  # (batch, hidden, time)
+        temporal_features: torch.Tensor = self.temporal_conv(history)  # (batch, hidden, time)
         temporal_features = self.pool(temporal_features).squeeze(-1)  # (batch, hidden)
 
         # Encode goal and action
-        features_list = [temporal_features]
+        features_list: list[torch.Tensor] = [temporal_features]
 
         if self.goal_dim > 0:
-            goal_features = self.goal_encoder(goal)
+            goal_features: torch.Tensor = self.goal_encoder(goal)
             features_list.append(goal_features)
 
         if self.action_dim > 0:
-            action_features = self.action_encoder(action)
+            action_features: torch.Tensor = self.action_encoder(action)
             features_list.append(action_features)
 
         # Fuse and final MLP
-        fused = torch.cat(features_list, dim=1)
+        fused: torch.Tensor = torch.cat(features_list, dim=1)
+
         return self.final_mlp(fused)
