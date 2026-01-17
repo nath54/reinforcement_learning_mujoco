@@ -73,10 +73,10 @@ class Controls:
             self.physics.apply_control(acceleration_factor=1.0)
         # Turn Left (Left Arrow)
         elif 263 in self.key_pressed:
-            self.physics.apply_control(rotation_factor=1.0, rotation_force=15000000)
+            self.physics.apply_control(rotation_factor=1.0, rotation_force=0.05)
         # Turn Right (Right Arrow)
         elif 262 in self.key_pressed:
-            self.physics.apply_control(rotation_factor=-1.0, rotation_force=15000000)
+            self.physics.apply_control(rotation_factor=-1.0, rotation_force=0.05)
         # Backward (Down Arrow)
         elif 264 in self.key_pressed:
             self.physics.apply_control(acceleration_factor=-1.0)
