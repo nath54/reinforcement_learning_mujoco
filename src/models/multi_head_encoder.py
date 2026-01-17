@@ -8,7 +8,7 @@ for each type of information.
 
 import torch
 import torch.nn as nn
-from typing import Tuple, Optional
+from typing import Optional
 
 
 class MultiHeadStateEncoder(nn.Module):

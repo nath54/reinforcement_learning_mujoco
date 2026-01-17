@@ -1,10 +1,10 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-import numpy.typing as npt
+from numpy.typing import NDArray
 import mujoco
 from collections import deque
-from typing import Tuple, Any, cast
+from typing import Any, cast
 
 from src.core.types import GlobalConfig, Vec3
 from src.simulation.generator import SceneBuilder
@@ -79,7 +79,7 @@ class CorridorEnv(gym.Env):
         self.current_step_count = 0
         self.previous_x_pos = 0.0
 
-    def reset(self, seed: Any = None, options: Any = None) -> Tuple[npt.NDArray[np.float64], dict[str, Any]]:
+    def reset(self, seed: Any = None, options: Any = None) -> tuple[NDArray[np.float64], dict[str, Any]]:
         super().reset(seed=seed)
         mujoco.mj_resetData(self.model, self.data)
         self.physics.reset()
@@ -105,8 +105,8 @@ class CorridorEnv(gym.Env):
 
         return self.get_observation(), {}
 
-    def step(self, action: npt.NDArray[np.float64]) -> Tuple[npt.NDArray[np.float64], float, bool, bool, dict[str, Any]]:
-        target_speeds: npt.NDArray[np.float64] = np.zeros(4, dtype=np.float64)
+    def step(self, action: NDArray[np.float64]) -> tuple[NDArray[np.float64], float, bool, bool, dict[str, Any]]:
+        target_speeds: NDArray[np.float64] = np.zeros(4, dtype=np.float64)
         max_speed = self.config.robot.max_speed
 
         # 1. Process Actions
@@ -211,7 +211,7 @@ class CorridorEnv(gym.Env):
 
         return self.get_observation(), total_reward, terminated, truncated, {"robot_pos": pos_arr}
 
-    def get_observation(self) -> npt.NDArray[np.float64]:
+    def get_observation(self) -> NDArray[np.float64]:
         if self.collision_system is None:
             return np.zeros(self.state_dim)
 

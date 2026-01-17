@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 import random
 from typing import Any, Optional
 import numpy as np
-import numpy.typing as npt
+from numpy.typing import NDArray
 
 @dataclass
 class Vec3:
@@ -68,8 +68,8 @@ class ValType:
 
 @dataclass
 class ModelInput:
-    vision: npt.NDArray[np.float64]
-    state_vector: npt.NDArray[np.float64]
+    vision: NDArray[np.float64]
+    state_vector: NDArray[np.float64]
 
 # --- Config Dataclasses ---
 

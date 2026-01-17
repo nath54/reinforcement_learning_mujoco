@@ -1,7 +1,7 @@
 from src.core.interfaces import RewardStrategyProtocol
 from src.core.types import Vec3, RewardConfig
 import numpy as np
-import numpy.typing as npt
+from numpy.typing import NDArray
 
 class VelocityReward(RewardStrategyProtocol):
     def __init__(self, config: RewardConfig):
@@ -12,7 +12,7 @@ class VelocityReward(RewardStrategyProtocol):
         """Reset state for new episode"""
         self.prev_x = 0.0
 
-    def compute(self, pos: Vec3, velocity: Vec3, action: npt.NDArray[np.float64], step_count: int, is_stuck: bool, is_backward: bool) -> float:
+    def compute(self, pos: Vec3, velocity: Vec3, action: NDArray[np.float64], step_count: int, is_stuck: bool, is_backward: bool) -> float:
         reward = 0.0
 
         # Main component

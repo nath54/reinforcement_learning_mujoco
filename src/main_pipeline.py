@@ -11,7 +11,7 @@ Or:
     python -m src.main --pipeline configs_pipelines/curriculum_v1/pipeline.yaml
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
 
 import os
 import sys
@@ -29,7 +29,7 @@ from core.config_loader import load_config
 
 
 # Load pipeline configuration YAML
-def load_pipeline_config(pipeline_path: str) -> Dict[str, Any]:
+def load_pipeline_config(pipeline_path: str) -> dict[str, Any]:
     """
     Load pipeline configuration YAML.
     """
@@ -40,15 +40,15 @@ def load_pipeline_config(pipeline_path: str) -> Dict[str, Any]:
 
 # Merge stage overrides into base config
 def merge_configs(
-    base_config: Dict[str, Any],
-    stage_overrides: Dict[str, Any]
-) -> Dict[str, Any]:
+    base_config: dict[str, Any],
+    stage_overrides: dict[str, Any]
+) -> dict[str, Any]:
 
     """
     Deep merge stage overrides into base config.
     """
 
-    result: Dict[str, Any] = copy.deepcopy(base_config)
+    result: dict[str, Any] = copy.deepcopy(base_config)
 
     #
     key: str
@@ -79,12 +79,12 @@ def run_pipeline(pipeline_path: str, output_dir: Optional[str] = None) -> None:
 
     # Load pipeline config
     pipeline_dir: Path = Path(pipeline_path).parent
-    pipeline_config: Dict[str, Any] = load_pipeline_config(pipeline_path)
+    pipeline_config: dict[str, Any] = load_pipeline_config(pipeline_path)
 
     # Parse pipeline config
     pipeline_name: str = pipeline_config.get('name', 'unnamed_pipeline')
-    stages: List[Dict[str, Any]] = pipeline_config.get('stages', [])
-    shared_config: Dict[str, Any] = pipeline_config.get('shared', {})
+    stages: list[dict[str, Any]] = pipeline_config.get('stages', [])
+    shared_config: dict[str, Any] = pipeline_config.get('shared', {})
 
     # Validate pipeline config
     if not stages:
@@ -117,7 +117,7 @@ def run_pipeline(pipeline_path: str, output_dir: Optional[str] = None) -> None:
     # Iterate over stages
     #
     stage_idx: int
-    stage: Dict[str, Any]
+    stage: dict[str, Any]
     #
     for stage_idx, stage in enumerate(stages):
 
@@ -148,7 +148,7 @@ def run_pipeline(pipeline_path: str, output_dir: Optional[str] = None) -> None:
 
         # Load stage config
         with open(stage_config_path, 'r') as f:
-            stage_yaml: Dict[str, Any] = yaml.safe_load(f)
+            stage_yaml: dict[str, Any] = yaml.safe_load(f)
 
         # Apply shared config (pipeline-level overrides)
         if shared_config:

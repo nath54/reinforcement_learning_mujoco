@@ -1,6 +1,6 @@
 import mujoco
 import numpy as np
-import numpy.typing as npt
+from numpy.typing import NDArray
 from src.core.types import Vec3
 
 class Physics:
@@ -20,7 +20,7 @@ class Physics:
         self.robot_deceleration_factor = 1.0 - self.robot_deceleration_force
 
         # Initialize wheels speed
-        self.robot_wheels_speed: npt.NDArray[np.float64] = np.zeros((4,), dtype=np.float64)
+        self.robot_wheels_speed: NDArray[np.float64] = np.zeros((4,), dtype=np.float64)
 
     def reset(self) -> None:
         """Reset physics state"""
@@ -115,7 +115,7 @@ class Physics:
         # Apply to MuJoCo
         self.data_scene.ctrl = self.robot_wheels_speed
 
-    def set_wheel_speeds_directly(self, speeds: npt.NDArray[np.float64]) -> None:
+    def set_wheel_speeds_directly(self, speeds: NDArray[np.float64]) -> None:
         """Set wheel speeds directly"""
         self.robot_wheels_speed[:] = speeds
         self.data_scene.ctrl = self.robot_wheels_speed

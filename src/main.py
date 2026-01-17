@@ -1,3 +1,19 @@
+"""
+Main entry point for the Robot Corridor RL project
+
+This script allows you to run different modes of the project:
+    - Train: Train the agent
+    - Play: Play with trained model
+    - Interactive: Interactive keyboard control
+    - Pipeline: Run training pipeline from yaml
+
+Usage:
+    python -m src.main --train --config config/main.yaml
+    python -m src.main --play --config config/main.yaml
+    python -m src.main --interactive --config config/main.yaml
+    python -m src.main --pipeline config/pipeline.yaml
+"""
+
 import argparse
 import multiprocessing as mp
 

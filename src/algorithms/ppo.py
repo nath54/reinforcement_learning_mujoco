@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-import numpy.typing as npt
+from numpy.typing import NDArray
 from math import log
 from typing import Tuple, cast
 
@@ -15,7 +15,7 @@ class ActorCritic(nn.Module):
         self,
         state_dim: int,
         action_dim: int,
-        vision_shape: Tuple[int, int],
+        vision_shape: tuple[int, int],
         state_vector_dim: int = 13,
         action_std_init: float = 0.5,
         action_std_min: float = 0.01,
@@ -110,7 +110,7 @@ class ActorCritic(nn.Module):
 
         return torch.cat((vision_features, state_features), dim=1)
 
-    def act(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def act(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Select action"""
         features = self._process_input(state)
 
@@ -135,7 +135,7 @@ class ActorCritic(nn.Module):
         features = self._process_input(state)
         return self.actor(features)
 
-    def evaluate(self, state: torch.Tensor, action: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def evaluate(self, state: torch.Tensor, action: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Evaluate actions"""
         features = self._process_input(state)
 
@@ -162,7 +162,7 @@ class PPOAgent:
         self,
         state_dim: int,
         action_dim: int,
-        vision_shape: Tuple[int, int],
+        vision_shape: tuple[int, int],
         lr: float = 0.0003,
         gamma: float = 0.99,
         K_epochs: int = 4,
@@ -220,7 +220,7 @@ class PPOAgent:
 
         self.MseLoss: nn.MSELoss = nn.MSELoss()
 
-    def select_action(self, state: npt.NDArray[np.float64]) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def select_action(self, state: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """Select action from policy"""
         with torch.no_grad():
             state_tensor: torch.Tensor = torch.FloatTensor(state).to(self.device)
@@ -239,7 +239,7 @@ class PPOAgent:
 
         return action, action_logprob
 
-    def get_action_statistics(self, state: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    def get_action_statistics(self, state: NDArray[np.float64]) -> NDArray[np.float64]:
         """Get action statistics (mean) for deterministic play"""
         with torch.no_grad():
             state_tensor = torch.FloatTensor(state).to(self.device)
@@ -250,7 +250,7 @@ class PPOAgent:
 
         return mean_val.cpu().numpy().flatten()
 
-    def update(self, memory: Memory, next_state: npt.NDArray[np.float64], next_done: npt.NDArray[np.float64]) -> None:
+    def update(self, memory: Memory, next_state: NDArray[np.float64], next_done: NDArray[np.float64]) -> None:
         """Update policy using PPO"""
 
         # Convert memory to tensors

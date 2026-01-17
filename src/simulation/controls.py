@@ -1,6 +1,6 @@
 import json
 import mujoco
-from typing import Any, Set, Dict, List, Optional
+from typing import Any, Optional
 from src.simulation.physics import Physics
 from src.simulation.sensors import Camera
 
@@ -16,12 +16,12 @@ class Controls:
         self.display_camera_info: bool = False
 
         # History recording
-        self.key_pressed: Set[int] = set()
-        self.controls_history: Dict[str, List[int]] = {}
+        self.key_pressed: set[int] = set()
+        self.controls_history: dict[str, list[int]] = {}
         self.current_frame: int = 0
 
         # Logic to clear conflicting keys
-        self.easy_control: Set[int] = {32, 262, 263, 264, 265}
+        self.easy_control: set[int] = {32, 262, 263, 264, 265}
 
     def new_frame(self, cam: Any) -> None:
         self.current_frame += 1
