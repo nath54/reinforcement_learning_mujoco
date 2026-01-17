@@ -5,6 +5,7 @@ from src.core.config_loader import load_config
 from src.main_train import train
 from src.main_play import play
 from src.main_interactive import interactive
+from src.main_pipeline import run_pipeline
 
 #
 def parse_args() -> argparse.Namespace:
@@ -35,8 +36,6 @@ def main() -> None:
 
     # Run training pipeline of training runs
     if args.pipeline:
-        #
-        from src.main_pipeline import run_pipeline
         #
         run_pipeline(args.pipeline)
 

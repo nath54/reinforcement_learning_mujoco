@@ -1,13 +1,27 @@
-import argparse
-import os
-import datetime
-import multiprocessing as mp
-from functools import partial
+"""
+Train the model from a configuration file
+
+Usage:
+    python -m src.main_train --config config/main.yaml
+
+Or:
+    python -m src.main --train --config config/main.yaml
+"""
+
 from typing import Any, Optional
 
+import os
+import argparse
+import datetime
+import multiprocessing as mp
+
 import numpy as np
+from numpy.typing import NDArray
+
 import torch
+
 from tqdm import tqdm
+from functools import partial
 
 from src.core.config_loader import load_config
 from src.core.types import GlobalConfig
@@ -17,56 +31,76 @@ from src.utils.memory import Memory
 from src.utils.parallel_env import SubprocVecEnv
 
 
+# Factory function for creating environments
 def make_env(config: GlobalConfig) -> CorridorEnv:
-    """Factory function for creating environments"""
+    """
+    Factory function for creating environments
+    """
+
     return CorridorEnv(config)
 
 
+# Train the PPO agent with parallel environments
 def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
-    """Train the PPO agent with parallel environments
+    """
+    Train the PPO agent with parallel environments
 
     Args:
         config: Global configuration
         exp_dir_override: Override output directory (for pipeline mode)
     """
+
     print("Starting training...")
 
     # Create experiment directory
+    #
+    exp_dir: str
+    #
     if exp_dir_override:
+        #
         exp_dir = exp_dir_override
     else:
+        #
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        #
         exp_dir = os.path.join("trainings_exp", timestamp)
+
     os.makedirs(exp_dir, exist_ok=True)
+
     print(f"Experiment data: {exp_dir}")
 
     # Paths
-    current_model_path = os.path.join(exp_dir, "model_latest.pth")
-    best_model_path = os.path.join(exp_dir, "best_model.pth")
-    training_log_path = os.path.join(exp_dir, "rewards.txt")
+    current_model_path: str = os.path.join(exp_dir, "model_latest.pth")
+    best_model_path: str = os.path.join(exp_dir, "best_model.pth")
+    training_log_path: str = os.path.join(exp_dir, "rewards.txt")
 
     # Create parallel environments
-    num_envs = config.simulation.num_envs
-    print(f"Using {num_envs} parallel environments")
 
-    envs = SubprocVecEnv([partial(make_env, config=config) for _ in range(num_envs)])
+    print(f"Using {config.simulation.num_envs} parallel environments")
+
+    envs: SubprocVecEnv = SubprocVecEnv(
+        [
+            partial(make_env, config=config)
+            for _ in range(config.simulation.num_envs)
+        ]
+    )
 
     # Calculate dimensions
-    view_range_grid = int(config.simulation.robot_view_range / config.simulation.env_precision)
-    vision_width = 2 * view_range_grid
-    vision_height = 2 * view_range_grid
-    vision_size = vision_width * vision_height
-    state_dim = vision_size + 13
+    view_range_grid: int = int(config.simulation.robot_view_range / config.simulation.env_precision)
+    vision_width: int = 2 * view_range_grid
+    vision_height: int = 2 * view_range_grid
+    vision_size: int = vision_width * vision_height
+    state_dim: int = vision_size + 13
 
     if config.robot.control_mode == "discrete_direction":
-        action_dim = 4
+        action_dim: int = 4
     elif config.robot.control_mode == "continuous_vector":
-        action_dim = 2
+        action_dim: int = 2
     else:
-        action_dim = 4
+        action_dim: int = 4
 
     # Create agent
-    agent = PPOAgent(
+    agent: PPOAgent = PPOAgent(
         state_dim, action_dim, (vision_width, vision_height),
         lr=config.training.learning_rate,
         gamma=config.training.gamma,
@@ -84,40 +118,61 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
         control_mode=config.robot.control_mode
     )
 
-    memory = Memory()
+    # Initialize memory
+    memory: Memory = Memory()
 
     # Load weights if specified
-    if config.training.load_weights_from and os.path.exists(config.training.load_weights_from):
+    if config.training.load_weights_from \
+        and os.path.exists(config.training.load_weights_from):
+        #
         print(f"Loading weights from {config.training.load_weights_from}")
+        #
         try:
+            #
             agent.policy.load_state_dict(torch.load(config.training.load_weights_from, map_location=agent.device))
             agent.policy_old.load_state_dict(agent.policy.state_dict())
+            #
             print("Weights loaded successfully")
+        #
         except Exception as e:
+            #
             print(f"Error loading weights: {e}")
 
     # Training variables
-    episode_rewards = [0.0] * num_envs
-    episode_steps = [0] * num_envs
-    i_episode = 0
-    best_reward = -float('inf')
+    episode_rewards: list[float] = [0.0] * num_envs
+    episode_steps: list[int] = [0] * num_envs
+    i_episode: int = 0
+    best_reward: float = -float('inf')
 
     # Early stopping tracking
-    consecutive_successes = 0
-    success_threshold = getattr(config.training, 'early_stopping_success_threshold', 90.0)
-    required_successes = getattr(config.training, 'early_stopping_consecutive_successes', 50)
-    early_stopping_enabled = getattr(config.training, 'early_stopping_enabled', False)
+    consecutive_successes: int = 0
+    success_threshold: float = getattr(config.training, 'early_stopping_success_threshold', 90.0)
+    required_successes: int = getattr(config.training, 'early_stopping_consecutive_successes', 50)
+    early_stopping_enabled: bool = getattr(config.training, 'early_stopping_enabled', False)
 
-    state = envs.reset()
+    state: NDArray[np.float32] = envs.reset()
 
     # Training loop with progress bar
-    pbar = tqdm(total=config.training.max_episodes, desc="Training")
+    pbar: tqdm.tqdm = tqdm(total=config.training.max_episodes, desc="Training")
 
     while i_episode < config.training.max_episodes:
-        steps_per_update = config.training.update_timestep // num_envs
-        interval_completed_rewards = []
+        steps_per_update: int = config.training.update_timestep // num_envs
+        interval_completed_rewards: list[float] = []
 
+        #
+        action: NDArray[np.float32]
+        action_logprob: NDArray[np.float32]
+        next_state: NDArray[np.float32]
+        reward: NDArray[np.float32]
+        terminated: NDArray[np.bool_]
+        truncated: NDArray[np.bool_]
+        infos: dict[str, Any]
+        done: NDArray[np.bool_]
+        idx: int
+        t: int
+        #
         for t in range(steps_per_update):
+
             # Select action
             action, action_logprob = agent.select_action(state)
 
@@ -134,10 +189,14 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
 
             # Update tracking
             for idx in range(num_envs):
+
+                # Update episode tracking
                 episode_rewards[idx] += reward[idx]
                 episode_steps[idx] += 1
 
+                # Episode completed
                 if done[idx]:
+                    #
                     ep_reward = float(episode_rewards[idx])
                     ep_steps = episode_steps[idx]
                     interval_completed_rewards.append(ep_reward)
@@ -150,14 +209,17 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
                         with open(training_log_path, 'a') as f:
                             f.write(f"{ep_reward}\n")
                             f.flush()
+                    #
                     except Exception as e:
                         print(f"Error writing log: {e}")
 
+                    # Reset episode tracking
                     episode_rewards[idx] = 0.0
                     episode_steps[idx] = 0
                     i_episode += 1
                     pbar.update(1)
 
+            # Update state
             state = next_state
 
         # Update PPO
@@ -166,9 +228,9 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
 
         # Logging
         if len(interval_completed_rewards) > 0:
-            avg_reward = sum(interval_completed_rewards) / len(interval_completed_rewards)
-            min_reward = min(interval_completed_rewards)
-            max_reward = max(interval_completed_rewards)
+            avg_reward: float = sum(interval_completed_rewards) / len(interval_completed_rewards)
+            min_reward: float = min(interval_completed_rewards)
+            max_reward: float = max(interval_completed_rewards)
 
             # Print interval summary
             print(f"\n--- Update Summary ---")
@@ -176,6 +238,7 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
             print(f"Avg reward: {avg_reward:.2f} | Min: {min_reward:.2f} | Max: {max_reward:.2f} | Best: {best_reward:.2f}")
             print(f"----------------------")
 
+            # Update progress bar
             pbar.set_postfix({
                 'avg': f'{avg_reward:.2f}',
                 'min': f'{min_reward:.2f}',
@@ -185,46 +248,62 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
 
             # Save best model
             if avg_reward > best_reward:
+                #
                 best_reward = avg_reward
                 torch.save(agent.policy.state_dict(), best_model_path)
+                #
                 print(f"New best model saved! (reward: {best_reward:.2f})")
 
             # Save latest periodically
             if i_episode % 10 == 0:
                 torch.save(agent.policy.state_dict(), current_model_path)
 
-            # Early stopping check
+            # Early stopping
             if early_stopping_enabled:
+                #
                 if avg_reward >= success_threshold:
                     consecutive_successes += 1
                     print(f"Success! ({consecutive_successes}/{required_successes} consecutive)")
                 else:
                     consecutive_successes = 0
 
+                # Early stopping check
                 if consecutive_successes >= required_successes:
                     print(f"\nEarly stopping triggered! {required_successes} consecutive successes achieved.")
                     break
 
+    # Close environment
     pbar.close()
     envs.close()
+
+    # Training complete
     print("Training complete!")
 
 
+# Main training function
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Robot Corridor RL Training")
+
+    # Parse arguments
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Robot Corridor RL Training")
+    #
     parser.add_argument('--config', type=str, default='config/main.yaml', help='Config file path')
-    args = parser.parse_args()
+    #
+    args: argparse.Namespace = parser.parse_args()
 
     # Load configuration
-    cfg = load_config(args.config)
+    cfg: Config = load_config(args.config)
 
+    # Set multiprocessing method
     try:
         mp.set_start_method('spawn', force=True)
     except RuntimeError:
         pass
 
+    # Run training
     train(cfg)
 
 
+# This script can also be directly run from the command line instead of using src.main
 if __name__ == "__main__":
+    #
     main()
