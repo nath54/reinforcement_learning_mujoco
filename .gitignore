@@ -1,8 +1,9 @@
 *venv*
 *.mp4
-*.json
 *.zip
 *.TXT
 *.txt
 *.pyc
 *.pth
+trainings_exp
+__pycache__
