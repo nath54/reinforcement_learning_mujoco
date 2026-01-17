@@ -1,0 +1,19 @@
+corridor_length: 100.0
+corridor_width: 3.0
+robot_view_range: 4.0
+max_steps: 30000
+env_precision: 0.2
+warmup_steps: 1000
+action_repeat: 10
+num_envs: 6
+obstacles_mode: "sinusoidal"
+obstacles_mode_param:
+  obstacle_sep: 5.0
+  obstacle_size_x: 0.4
+  obstacle_size_y: 0.4
+  obstacle_size_z: 0.5
+gravity: "0 0 -0.20"
+dt: 0.01
+solver: "Newton"
+iterations: 500
+ground_friction: "1 0.005 0.0001"

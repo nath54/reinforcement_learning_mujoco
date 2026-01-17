@@ -1,0 +1,4 @@
+xml_path: "xml/four_wheels_robot.xml"
+action_smoothing_k: 5
+control_mode: "discrete_direction"
+max_speed: 10.0

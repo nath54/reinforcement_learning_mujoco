@@ -34,10 +34,10 @@ def load_config(main_config_path: str) -> GlobalConfig:
     # Load pointers
     _merge_sub_config('model')
     _merge_sub_config('rewards')
-    # Simulation/Environment config is often standalone or pointed to.
-    # Let's assume we might have an 'environment' key in simulation or similar,
-    # but based on the prompt structure, simulation params are in env config.
-    # We will try to load a 'simulation' subconfig if 'config_file' exists there.
+    _merge_sub_config('robot')
+    _merge_sub_config('training')
+
+    # Simulation/Environment config
     if 'simulation' in main_cfg_dict and 'config_file' in main_cfg_dict['simulation']:
          _merge_sub_config('simulation')
 

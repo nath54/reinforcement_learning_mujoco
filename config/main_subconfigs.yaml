@@ -1,0 +1,17 @@
+# Fully Modular Configuration
+# This file exclusively uses sub-configurations for maximum flexibility.
+
+simulation:
+  config_file: "environments/standard_corridor.yaml"
+
+robot:
+  config_file: "robots/four_wheels.yaml"
+
+model:
+  config_file: "agents/policy_mlp_small.yaml"
+
+rewards:
+  config_file: "rewards/velocity_focused.yaml"
+
+training:
+  config_file: "training/ppo_default.yaml"
