@@ -30,7 +30,7 @@ A fully modular, type-hinted, and YAML-configurable RL training environment for 
 │   ├── algorithms/            # PPO agent with ActorCritic
 │   └── utils/                 # Memory, parallel envs, tracking
 ├── xml/                       # Robot XML definitions
-└── outputs/                   # Training outputs (models, logs)
+└── trainings_exp/             # Training outputs (models, logs)
 ```
 
 ## Scene Types
