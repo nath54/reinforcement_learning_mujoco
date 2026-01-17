@@ -23,12 +23,12 @@ import torch
 from tqdm import tqdm
 from functools import partial
 
-from src.core.config_loader import load_config
-from src.core.types import GlobalConfig
-from src.environment.wrapper import CorridorEnv
-from src.algorithms.ppo import PPOAgent
-from src.utils.memory import Memory
-from src.utils.parallel_env import SubprocVecEnv
+from .core.config_loader import load_config
+from .core.types import GlobalConfig
+from .environment.wrapper import CorridorEnv
+from .algorithms.ppo import PPOAgent
+from .utils.memory import Memory
+from .utils.parallel_env import SubprocVecEnv
 
 
 # Factory function for creating environments
@@ -74,14 +74,17 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
     best_model_path: str = os.path.join(exp_dir, "best_model.pth")
     training_log_path: str = os.path.join(exp_dir, "rewards.txt")
 
+    # Number of environments
+    num_envs: int = config.simulation.num_envs
+
     # Create parallel environments
 
-    print(f"Using {config.simulation.num_envs} parallel environments")
+    print(f"Using {num_envs} parallel environments")
 
     envs: SubprocVecEnv = SubprocVecEnv(
         [
             partial(make_env, config=config)
-            for _ in range(config.simulation.num_envs)
+            for _ in range(num_envs)
         ]
     )
 

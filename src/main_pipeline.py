@@ -24,8 +24,8 @@ import traceback
 from pathlib import Path
 from datetime import datetime
 
-from main_train import train
-from core.config_loader import load_config
+from .main_train import train
+from .core.config_loader import load_config
 
 
 # Load pipeline configuration YAML

@@ -22,15 +22,15 @@ import torch
 import mujoco
 from mujoco import viewer as viewer_
 
-from src.core.config_loader import load_config
-from src.core.types import GlobalConfig
-from src.environment.wrapper import CorridorEnv
-from src.algorithms.ppo import PPOAgent
-from src.simulation.generator import SceneBuilder
-from src.simulation.physics import Physics
-from src.simulation.sensors import Camera
-from src.simulation.controls import Controls
-from src.utils.tracking import TrackRobot
+from .core.config_loader import load_config
+from .core.types import GlobalConfig
+from .environment.wrapper import CorridorEnv
+from .algorithms.ppo import PPOAgent
+from .simulation.generator import SceneBuilder
+from .simulation.physics import Physics
+from .simulation.sensors import Camera
+from .simulation.controls import Controls
+from .utils.tracking import TrackRobot
 
 try:
     import cv2

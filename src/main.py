@@ -17,11 +17,11 @@ Usage:
 import argparse
 import multiprocessing as mp
 
-from src.core.config_loader import load_config
-from src.main_train import train
-from src.main_play import play
-from src.main_interactive import interactive
-from src.main_pipeline import run_pipeline
+from .core.config_loader import load_config
+from .main_train import train
+from .main_play import play
+from .main_interactive import interactive
+from .main_pipeline import run_pipeline
 
 
 # Parse command line arguments

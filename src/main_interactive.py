@@ -26,13 +26,13 @@ from numpy.typing import NDArray
 import mujoco
 from mujoco import viewer as viewer_
 
-from src.core.config_loader import load_config
-from src.core.types import GlobalConfig
-from src.simulation.generator import SceneBuilder
-from src.simulation.physics import Physics
-from src.simulation.sensors import Camera
-from src.simulation.controls import Controls
-from src.utils.tracking import TrackRobot
+from .core.config_loader import load_config
+from .core.types import GlobalConfig
+from .simulation.generator import SceneBuilder
+from .simulation.physics import Physics
+from .simulation.sensors import Camera
+from .simulation.controls import Controls
+from .utils.tracking import TrackRobot
 
 # Type cast to Any to avoid mypy errors
 viewer: Any = cast(Any, viewer_)
