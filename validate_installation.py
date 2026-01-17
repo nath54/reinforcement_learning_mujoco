@@ -55,7 +55,7 @@ def main():
         "src/simulation/generator.py",
         "src/environment/wrapper.py",
         "src/algorithms/ppo.py",
-        "four_wheels_robot.xml",
+        "xml/four_wheels_robot.xml",
     ]
     for file_path in required_files:
         exists = Path(file_path).exists()
@@ -174,7 +174,7 @@ def main():
         print()
         print("Common fixes:")
         print("  • Install missing dependencies: pip install -r requirements.txt")
-        print("  • Copy four_wheels_robot.xml to project root")
+        print("  • Copy four_wheels_robot.xml to project xml/ directory")
         print("  • Run from project root directory")
         sys.exit(1)
     print("=" * 60)
