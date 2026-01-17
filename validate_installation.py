@@ -170,7 +170,7 @@ def main():
         print("  2. Play: python -m src.main --interactive")
         print("  3. See QUICKSTART.md for more options")
     else:
-        print("✗ Some checks failed. See TROUBLESHOOTING.md for help.")
+        print("✗ Some checks failed.")
         print()
         print("Common fixes:")
         print("  • Install missing dependencies: pip install -r requirements.txt")
