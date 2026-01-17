@@ -1,200 +1,141 @@
-# Robot Corridor Modular - Complete Implementation
+# Robot Corridor Modular - Reinforcement Learning Environment
 
 ## Overview
-This is a fully modular, type-hinted, and YAML-configurable implementation of the robot corridor RL training environment.
+A fully modular, type-hinted, and YAML-configurable RL training environment for robot navigation using MuJoCo physics simulation. Supports curriculum learning with multiple scene types and goal-based navigation.
+
+## Recent Updates
+
+- **Multi-Scene Support**: New `flat_world` scene type alongside corridor
+- **Goal-Based Navigation**: Visual goal markers (red spheres) with distance-based rewards
+- **Curriculum Pipeline**: Multi-stage training with progressive difficulty
+- **Distance Tracking**: Real-time distance-to-goal display and plotting
+- **Code Quality**: Full type hints and docstrings throughout
 
 ## Directory Structure
 
 ```
-robot_corridor_modular/
-├── config/                          # All YAML configurations
-│   ├── main.yaml                    # Main config (points to sub-configs)
-│   ├── agents/                      # Model architectures
-│   │   ├── policy_mlp_small.yaml
-│   │   └── policy_transformer_large.yaml
-│   ├── environments/                # Map and physics configs
-│   │   ├── corridor_standard.yaml
-│   │   └── corridor_hard.yaml
-│   └── rewards/                     # Reward function configs
-│       ├── standard_reward.yaml
-│       └── velocity_focused.yaml
-│
+├── config/                    # YAML configurations
+│   └── main.yaml              # Main config for corridor training
+├── configs_pipelines/         # Curriculum pipeline configs
+│   └── curriculum_v1/
+│       ├── pipeline.yaml      # Pipeline definition
+│       ├── stage_01_flat.yaml # Flat world navigation
+│       ├── stage_02_obstacles.yaml
+│       └── stage_03_corridor_empty.yaml
 ├── src/
-│   ├── __init__.py
-│   ├── core/                        # LEVEL 0: No external dependencies
-│   │   ├── __init__.py
-│   │   ├── types.py                 # Dataclasses, Enums (Vec3, Rect2d, configs)
-│   │   ├── interfaces.py            # Protocols/ABC
-│   │   └── config_loader.py         # Smart YAML loader
-│   │
-│   ├── simulation/                  # LEVEL 1: MuJoCo & Physics
-│   │   ├── __init__.py
-│   │   ├── generator.py             # Procedural corridor generation
-│   │   ├── robot.py                 # Robot XML management
-│   │   ├── physics.py               # Physics engine (forces, drag, wheels)
-│   │   ├── sensors.py               # Vision and Collision systems
-│   │   └── controls.py              # Keyboard controls
-│   │
-│   ├── environment/                 # LEVEL 2: Gym Wrapper & Logic
-│   │   ├── __init__.py
-│   │   ├── wrapper.py               # CorridorEnv (Gym)
-│   │   └── reward_strategy.py       # Interchangeable reward strategies
-│   │
-│   ├── models/                      # LEVEL 3: Neural Networks (PyTorch)
-│   │   ├── __init__.py
-│   │   ├── factory.py               # Dynamic model creation
-│   │   ├── mlp.py                   # MLP implementation
-│   │   └── transformer.py           # Transformer implementation
-│   │
-│   ├── algorithms/                  # LEVEL 4: RL Algorithms
-│   │   ├── __init__.py
-│   │   └── ppo.py                   # PPO agent with ActorCritic
-│   │
-│   ├── utils/                       # Utilities
-│   │   ├── __init__.py
-│   │   ├── memory.py                # PPO memory buffer
-│   │   ├── parallel_env.py          # Parallel environment wrapper
-│   │   └── tracking.py              # Robot trajectory tracking/plotting
-│   │
-│   └── main.py                      # Entry point with all modes
-│
-└── four_wheels_robot.xml            # Robot URDF/XML
+│   ├── core/                  # Types, interfaces, config loading
+│   ├── simulation/            # MuJoCo physics, scene generation, sensors
+│   ├── environment/           # Gym wrapper, reward strategies
+│   ├── models/                # Neural networks (MLP, Transformer)
+│   ├── algorithms/            # PPO agent with ActorCritic
+│   └── utils/                 # Memory, parallel envs, tracking
+├── xml/                       # Robot XML definitions
+└── outputs/                   # Training outputs (models, logs)
 ```
 
-## Complete Feature List
+## Scene Types
 
-1. **Multiple Control Modes**:
-   - `discrete_direction`: 4 discrete actions (Forward, Backward, Left, Right)
-   - `continuous_vector`: 2D continuous (Speed, Rotation)
-   - `continuous_wheels`: 4D continuous (individual wheel control)
+### Corridor (`scene_type: "corridor"`)
+- Linear corridor with walls and obstacles
+- Goal at end of corridor (beyond obstacles)
+- Good for learning forward navigation
 
-2. **Obstacle Generation Modes**:
-   - `sinusoidal`: Wave pattern obstacles
-   - `double_sinusoidal`: Double wave pattern (NEW - was missing)
-   - `random`: Random placement
-   - `none`: No obstacles
+### Flat World (`scene_type: "flat_world"`)
+- Open arena with boundary walls
+- Randomized goal position each episode
+- Good for omnidirectional navigation
 
-3. **Training Features**:
-   - Parallel environments with multiprocessing
-   - GAE (Generalized Advantage Estimation)
-   - Gradient clipping
-   - Entropy regularization
-   - Action smoothing
-   - Warmup steps
-   - Checkpoint saving (best + latest)
-   - Crash-safe logging (immediate file writes)
+## Control Modes
 
-4. **Reward Components**:
-   - Position-based or velocity-based rewards
-   - Goal reaching bonus
-   - Stuck detection penalty
-   - Backward escape bonus
-   - Collision detection
-   - Straight line penalty
-
-5. **Modes of Operation**:
-   - `--train`: Multi-environment parallel training
-   - `--play`: Play with trained model (with optional live vision)
-   - `--interactive`: Keyboard control mode
-   - `--render_mode`: Replay saved controls
-
-6. **Vision System**:
-   - Grid-based obstacle detection
-   - Efficient collision system
-   - Configurable view range
-   - CNN-based vision processing
-
-7. **Camera Modes**:
-   - Free camera (mouse control)
-   - Follow robot (3rd person)
-   - Top-down view
-
-8. **Physics Simulation**:
-   - Air resistance
-   - Robot deceleration
-   - Differential drive control
-   - Configurable wheel speeds
-
-9. **Visualization**:
-   - Live vision window (OpenCV)
-   - Agent output visualization
-   - Trajectory plotting (matplotlib)
+| Mode                 | Actions | Description                    |
+| -------------------- | ------- | ------------------------------ |
+| `discrete_direction` | 4       | Forward, Backward, Left, Right |
+| `continuous_vector`  | 2       | Speed + Rotation               |
+| `continuous_wheels`  | 4       | Individual wheel control       |
 
 ## Usage
 
-### Training
+### Training (Single Config)
 ```bash
 python -m src.main --train --config config/main.yaml
 ```
 
-### Play with Trained Model
+### Curriculum Training (Pipeline)
 ```bash
-python -m src.main --play --model_path path/to/model.pth
+python -m src.main --pipeline configs_pipelines/curriculum_v1/pipeline.yaml
 ```
 
-### Play with Live Vision
+### Play with Trained Model
 ```bash
-python -m src.main --play --model_path path/to/model.pth --live_vision
+python -m src.main --play --model_path outputs/best_model.pt --config config/main.yaml
+python -m src.main --play --model_path outputs/best_model.pt --live_vision  # With vision overlay
 ```
 
 ### Interactive Keyboard Control
 ```bash
-python -m src.main --interactive
+python -m src.main --interactive --config config/main.yaml
+python -m src.main --interactive --config configs_pipelines/curriculum_v1/stage_01_flat.yaml
 ```
 
-### Replay Saved Controls
-```bash
-python -m src.main --interactive --render_mode
-```
+### Controls (Interactive/Play Mode)
+- **Arrow Keys**: Move robot
+- **1/2/3**: Camera modes (Free/Follow/Top-down)
+- **C**: Print camera/robot info
+- **S**: Save control history
+- **Q/ESC**: Quit
 
 ## Configuration
 
-All aspects are configurable via YAML:
-
-### Main Config (`config/main.yaml`)
+### Scene Configuration
 ```yaml
 simulation:
-  max_steps: 30000
-  env_precision: 0.2
+  scene_type: "flat_world"    # or "corridor"
+  corridor_length: 50.0       # Arena size X
+  corridor_width: 50.0        # Arena size Y
+  goal_radius: 3.0            # Success radius
+  randomize_goal: true        # Randomize goal on reset
+  obstacles_mode: "none"      # none, random, sinusoidal, double_sinusoidal
+```
 
+### Goal Configuration
+```yaml
 model:
-  config_file: "agents/policy_mlp_small.yaml"
+  include_goal: true          # Add goal coords to state vector (4 extra dims)
+```
 
+When `include_goal: true`, the state vector includes:
+- `dx`: Normalized goal offset X
+- `dy`: Normalized goal offset Y
+- `distance`: Distance to goal
+- `angle`: Angle to goal relative to robot heading
+
+### Reward Configuration
+```yaml
 rewards:
-  config_file: "rewards/velocity_focused.yaml"
-
-training:
-  lr: 0.0003
+  goal: 100.0                 # Goal reaching bonus
+  velocity_reward_scale: 2.0  # Distance reduction reward scale
+  forward_progress_scale: 5.0 # Additional progress bonus
+  stuck_penalty: -0.05        # Penalty for being stuck
 ```
 
-### Model Config Example (`config/agents/policy_mlp_small.yaml`)
-```yaml
-type: "mlp"
-hidden_sizes: [128, 64]
-state_vector_dim: 13
-action_std_init: 0.5
-control_mode: "discrete_direction"
+## Reward System
+
+The reward is **distance-based**:
+```
+reward = (prev_distance - current_distance) * velocity_reward_scale
 ```
 
-### Environment Config Example (`config/environments/corridor_standard.yaml`)
-```yaml
-corridor_length: 100.0
-corridor_width: 3.0
-robot_view_range: 4.0
-obstacles_mode: "sinusoidal"
-obstacles_mode_param:
-  obstacle_sep: 5.0
-  obstacle_size_x: 0.4
-```
+This works for both scene types - the agent learns to reduce distance to goal regardless of direction.
 
-## Key Features
+## Training Features
 
-1. **Modularity**: Clean separation of concerns across layers
-2. **Type Safety**: Full type hints throughout
-3. **Configurability**: Everything is YAML-configurable
-4. **Maintainability**: Easy to modify/extend individual components
-5. **Testing**: Each module can be tested independently
-6. **Documentation**: Clear structure and purpose for each file
+- Parallel environments (multiprocessing)
+- GAE (Generalized Advantage Estimation)
+- Gradient clipping
+- Entropy regularization
+- Action smoothing
+- Checkpoint saving (best + latest)
+- Curriculum learning with weight transfer
 
 ## Dependencies
 
@@ -209,7 +150,17 @@ tqdm>=4.65.0
 opencv-python>=4.8.0  # Optional, for live vision
 ```
 
-## Notes
+## Installation
 
-- The modular structure makes it easy to swap components (e.g., different models, reward functions)
-- All file I/O is crash-safe (immediate flush)
+```bash
+pip install -r requirements.txt
+python validate_installation.py  # Verify setup
+```
+
+## Key Architecture
+
+1. **Scene Generator** (`simulation/generator.py`): Creates MuJoCo XML with corridor/flat world, obstacles, and goal marker
+2. **Environment Wrapper** (`environment/wrapper.py`): Gymnasium interface with goal-based termination
+3. **Reward Strategy** (`environment/reward_strategy.py`): Distance-reduction reward
+4. **PPO Agent** (`algorithms/ppo.py`): Actor-Critic with CNN vision + state encoder
+5. **Tracking** (`utils/tracking.py`): Position, velocity, and distance-to-goal tracking with plotting
