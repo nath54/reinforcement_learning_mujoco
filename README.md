@@ -63,8 +63,6 @@ robot_corridor_modular/
 
 ## Complete Feature List
 
-### ✅ All Original Features Preserved
-
 1. **Multiple Control Modes**:
    - `discrete_direction`: 4 discrete actions (Forward, Backward, Left, Right)
    - `continuous_vector`: 2D continuous (Speed, Rotation)
@@ -189,7 +187,7 @@ obstacles_mode_param:
   obstacle_size_x: 0.4
 ```
 
-## Key Improvements Over Original
+## Key Features
 
 1. **Modularity**: Clean separation of concerns across layers
 2. **Type Safety**: Full type hints throughout
@@ -213,8 +211,5 @@ opencv-python>=4.8.0  # Optional, for live vision
 
 ## Notes
 
-- All physics behavior matches the original exactly
-- Action smoothing, GAE, and reward calculation are identical
 - The modular structure makes it easy to swap components (e.g., different models, reward functions)
-- Progress bars added for better training feedback
 - All file I/O is crash-safe (immediate flush)
