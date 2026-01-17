@@ -189,6 +189,7 @@ class PPOAgent:
         state_dim: int,
         action_dim: int,
         vision_shape: tuple[int, int],
+        state_vector_dim: int = 13,
         lr: float = 0.0003,
         gamma: float = 0.99,
         K_epochs: int = 4,
@@ -222,6 +223,7 @@ class PPOAgent:
 
         self.policy: ActorCritic = ActorCritic(
             state_dim, action_dim, vision_shape,
+            state_vector_dim=state_vector_dim,
             action_std_init=action_std_init,
             action_std_min=action_std_min,
             action_std_max=action_std_max,
@@ -234,6 +236,7 @@ class PPOAgent:
 
         self.policy_old: ActorCritic = ActorCritic(
             state_dim, action_dim, vision_shape,
+            state_vector_dim=state_vector_dim,
             action_std_init=action_std_init,
             action_std_min=action_std_min,
             action_std_max=action_std_max,

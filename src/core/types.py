@@ -95,6 +95,14 @@ class SimulationConfig:
     obstacles_mode: str = "sinusoidal"
     obstacles_mode_param: dict[str, Any] = field(default_factory=dict)
 
+    # Scene type: "corridor" or "flat_world"
+    scene_type: str = "corridor"
+
+    # Goal settings (used for flat_world, ignored for corridor)
+    goal_position: Optional[tuple[float, float, float]] = None  # (x, y, z) or None for auto
+    goal_radius: float = 3.0  # Success radius to reach goal
+    randomize_goal: bool = False  # Randomize goal on each reset (auto-enabled for flat_world)
+
     # Physics settings (defaults match original script logic)
     gravity: str = "0 0 -0.20"     # Original low gravity
     dt: float = 0.01               # Timestep

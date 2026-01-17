@@ -2,8 +2,11 @@
 # Same arena but with random obstacles to navigate around
 
 simulation:
+  scene_type: "flat_world"  # Use flat world arena
   corridor_length: 50.0
   corridor_width: 50.0
+  goal_radius: 3.0       # Success radius for goal
+  randomize_goal: true   # Randomize goal each episode
   robot_view_range: 4.0
   max_steps: 15000
   env_precision: 0.2

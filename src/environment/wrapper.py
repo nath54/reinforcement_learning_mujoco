@@ -86,12 +86,22 @@ class CorridorEnv(gym.Env):
         # Reward Strategy
         self.reward_strategy = VelocityReward(config.rewards)
 
+        # Goal position (from scene builder)
+        self.goal_position: Vec3 | None = self.scene.goal_position
+
+        # Determine if goal info is included in state
+        self.include_goal: bool = config.model.include_goal
+
         # State & Observation Spaces
         view_range_grid: int = int(config.simulation.robot_view_range / config.simulation.env_precision)
         vision_width: int = 2 * view_range_grid
         vision_height: int = 2 * view_range_grid
         self.vision_size: int = vision_width * vision_height
-        self.state_dim: int = self.vision_size + 13 # 13 for state vector
+
+        # Base state vector: 13 dimensions
+        # Goal-relative coords add 4 dimensions if include_goal
+        goal_dims: int = 4 if self.include_goal else 0
+        self.state_dim: int = self.vision_size + 13 + goal_dims
 
         # Define Observation Space
         self.observation_space = spaces.Box(
@@ -158,6 +168,10 @@ class CorridorEnv(gym.Env):
         # Reset reward strategy state (for forward progress tracking)
         if hasattr(self.reward_strategy, 'reset'):
             self.reward_strategy.reset()
+
+        # Randomize goal for flat_world (if configured)
+        if self.config.simulation.scene_type == "flat_world":
+            self.goal_position = self.scene.reset_goal_position()
 
         return self.get_observation(), {}
 
@@ -292,19 +306,45 @@ class CorridorEnv(gym.Env):
 
             # Check conditions for termination or truncation
 
-            # Truncated if robot goes out of corridor backward
-            if pos.x < -self.config.simulation.corridor_length: truncated = True
+            if self.config.simulation.scene_type == "flat_world":
+                # Flat world: goal is reached when within goal_radius
+                if self.goal_position is not None:
+                    dist_to_goal: float = np.sqrt(
+                        (pos.x - self.goal_position.x)**2 + (pos.y - self.goal_position.y)**2
+                    )
+                    if dist_to_goal < self.config.simulation.goal_radius:
+                        terminated = True
+                        step_reward += self.config.rewards.goal
 
-            # Truncated if robot goes out of corridor side
-            if abs(pos.y) > self.config.simulation.corridor_width + 10.0: truncated = True
+                # Truncated if robot goes out of arena bounds
+                arena_x: float = self.config.simulation.corridor_length
+                arena_y: float = self.config.simulation.corridor_width
+                if abs(pos.x) > arena_x + 5.0 or abs(pos.y) > arena_y + 5.0:
+                    truncated = True
 
-            # Truncated if robot falls
-            if pos.z < -5.0: terminated = True
+                # Truncated if robot falls
+                if pos.z < -5.0:
+                    terminated = True
 
-            # Terminated if robot reaches goal
-            if pos.x > self.config.simulation.corridor_length:
-                terminated = True
-                step_reward += self.config.rewards.goal
+            else:
+                # Corridor mode: original termination conditions
+
+                # Truncated if robot goes out of corridor backward
+                if pos.x < -self.config.simulation.corridor_length:
+                    truncated = True
+
+                # Truncated if robot goes out of corridor side
+                if abs(pos.y) > self.config.simulation.corridor_width + 10.0:
+                    truncated = True
+
+                # Truncated if robot falls
+                if pos.z < -5.0:
+                    terminated = True
+
+                # Terminated if robot reaches goal (end of corridor)
+                if pos.x > self.config.simulation.corridor_length:
+                    terminated = True
+                    step_reward += self.config.rewards.goal
 
             # Scale reward
             step_reward *= self.config.training.reward_scale
@@ -351,9 +391,11 @@ class CorridorEnv(gym.Env):
         # Get robot velocity
         vel = Vec3(self.data.cvel[rid][0], self.data.cvel[rid][1], self.data.cvel[rid][2])
 
-        # Get robot vision and state
+        # Get robot vision and state (pass goal if include_goal is enabled)
+        goal_for_sensor: Vec3 | None = self.goal_position if self.include_goal else None
         model_input = self.collision_system.get_robot_vision_and_state(
-            pos, rot, vel, self.previous_action, self.config.simulation.robot_view_range
+            pos, rot, vel, self.previous_action, self.config.simulation.robot_view_range,
+            goal_position=goal_for_sensor
         )
 
         # Flatten vision and concatenate

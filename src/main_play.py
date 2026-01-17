@@ -69,12 +69,17 @@ def play(
     # Setup robot tracking
     robot_track: TrackRobot = TrackRobot(scene.mujoco_data)
 
-    # Setup agent
+    # Setup agent dimensions
     view_range_grid: int = int(config.simulation.robot_view_range / config.simulation.env_precision)
     vision_width: int = 2 * view_range_grid
     vision_height: int = 2 * view_range_grid
     vision_size: int = vision_width * vision_height
-    state_dim: int = vision_size + 13
+
+    # Base state vector: 13 dimensions
+    # Goal-relative coords add 4 dimensions if include_goal is True
+    goal_dims: int = 4 if config.model.include_goal else 0
+    state_vector_dim: int = 13 + goal_dims
+    state_dim: int = vision_size + state_vector_dim
 
     # Setup action space
     #
@@ -90,6 +95,7 @@ def play(
     # Setup agent
     agent: PPOAgent = PPOAgent(
         state_dim, action_dim, (vision_width, vision_height),
+        state_vector_dim=state_vector_dim,
         lr=config.training.learning_rate,
         gamma=config.training.gamma,
         K_epochs=config.training.k_epochs,

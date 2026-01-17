@@ -75,10 +75,19 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
         robot_speed: Vec3,
         previous_action: NDArray[np.float64],
         robot_view_range: float,
+        goal_position: Vec3 | None = None,
     ) -> ModelInput:
 
         """
         Extracts the local vision grid around the robot and the state vector.
+
+        Args:
+            robot_pos: Robot position
+            robot_rot: Robot rotation (euler angles)
+            robot_speed: Robot velocity
+            previous_action: Previous action taken
+            robot_view_range: Vision range in meters
+            goal_position: Optional goal position for goal-relative coordinates
         """
 
         # 1. Grid Coords
@@ -116,8 +125,8 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
         # Using sign() to just show obstacle presence vs absence
         vision_matrix = np.sign(vision_matrix)
 
-        # 3. State Vector (Normalized)
-        state_vector: NDArray[np.float64] = np.array([
+        # 3. State Vector (Normalized) - Base 13 dimensions
+        base_state: list[float] = [
             robot_pos.x / 100.0,
             robot_pos.y / 10.0,
             robot_pos.z,
@@ -128,7 +137,24 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
             robot_speed.y / 10.0,
             robot_speed.z / 10.0,
             previous_action[0], previous_action[1], previous_action[2], previous_action[3]
-        ], dtype=np.float64)
+        ]
+
+        # 4. Goal-relative coordinates (4 dimensions if goal provided)
+        if goal_position is not None:
+            # Compute goal-relative values
+            dx: float = (goal_position.x - robot_pos.x) / 100.0  # Normalized
+            dy: float = (goal_position.y - robot_pos.y) / 100.0  # Normalized
+            distance: float = np.sqrt(dx**2 + dy**2)
+            # Angle to goal relative to robot yaw (robot_rot.z is yaw)
+            angle_to_goal: float = np.arctan2(dy, dx) - robot_rot.z
+
+            # Normalize angle to [-pi, pi]
+            angle_to_goal = np.arctan2(np.sin(angle_to_goal), np.cos(angle_to_goal))
+
+            # Add goal info to state
+            base_state.extend([dx, dy, distance, angle_to_goal / np.pi])  # angle normalized to [-1, 1]
+
+        state_vector: NDArray[np.float64] = np.array(base_state, dtype=np.float64)
 
         # Return ModelInput
         return ModelInput(vision_matrix, state_vector)

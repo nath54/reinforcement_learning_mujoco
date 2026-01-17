@@ -93,7 +93,12 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
     vision_width: int = 2 * view_range_grid
     vision_height: int = 2 * view_range_grid
     vision_size: int = vision_width * vision_height
-    state_dim: int = vision_size + 13
+
+    # Base state vector: 13 dimensions (position, rotation, velocity, action)
+    # Goal-relative coords add 4 dimensions if include_goal is True
+    goal_dims: int = 4 if config.model.include_goal else 0
+    state_vector_dim: int = 13 + goal_dims
+    state_dim: int = vision_size + state_vector_dim
 
     if config.robot.control_mode == "discrete_direction":
         action_dim: int = 4
@@ -105,6 +110,7 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
     # Create agent
     agent: PPOAgent = PPOAgent(
         state_dim, action_dim, (vision_width, vision_height),
+        state_vector_dim=state_vector_dim,
         lr=config.training.learning_rate,
         gamma=config.training.gamma,
         K_epochs=config.training.k_epochs,
