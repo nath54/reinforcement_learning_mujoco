@@ -478,6 +478,18 @@ class SceneBuilder:
                 ground_friction=self.config.simulation.ground_friction
             )
 
+            # Add goal marker sphere to corridor scene
+            goal_radius: float = self.config.simulation.goal_radius
+            goal_geom: ET.Element = ET.Element('geom')
+            goal_geom.set('name', 'goal_marker')
+            goal_geom.set('type', 'sphere')
+            goal_geom.set('pos', f'{self.goal_position.x} {self.goal_position.y} {self.goal_position.z}')
+            goal_geom.set('size', str(goal_radius))
+            goal_geom.set('rgba', '1 0.2 0.2 0.4')  # Semi-transparent red
+            goal_geom.set('contype', '0')  # No collision type
+            goal_geom.set('conaffinity', '0')  # No collision affinity
+            scene_comps['body'].append(goal_geom)
+
         self.environment_rects = cast(list[Rect2d], scene_comps.get('environment_rects', []))
         robot_comps: dict[str, Any] = self.robot.extract_robot_from_xml()
 

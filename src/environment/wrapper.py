@@ -165,13 +165,18 @@ class CorridorEnv(gym.Env):
         self.action_history.clear()
         self.previous_x_pos = self.data.xpos[robot_id][0]
 
-        # Reset reward strategy state (for forward progress tracking)
-        if hasattr(self.reward_strategy, 'reset'):
-            self.reward_strategy.reset()
-
         # Randomize goal for flat_world (if configured)
         if self.config.simulation.scene_type == "flat_world":
             self.goal_position = self.scene.reset_goal_position()
+
+        # Reset reward strategy with goal and robot position
+        robot_pos: Vec3 = Vec3(
+            self.data.xpos[robot_id][0],
+            self.data.xpos[robot_id][1],
+            self.data.xpos[robot_id][2]
+        )
+        if hasattr(self.reward_strategy, 'reset'):
+            self.reward_strategy.reset(goal_position=self.goal_position, robot_position=robot_pos)
 
         return self.get_observation(), {}
 
@@ -298,53 +303,31 @@ class CorridorEnv(gym.Env):
                 #
                 is_going_backward = True
 
-            # Compute Reward using strategy
+            # Compute Reward using goal distance strategy
             step_reward: float = self.reward_strategy.compute(
-                pos, Vec3(vel_x, 0, 0), self.previous_action,
+                pos, Vec3(vel_x, 0, 0), self.goal_position, self.previous_action,
                 self.current_step_count, is_stuck, is_going_backward
             )
 
-            # Check conditions for termination or truncation
+            # Unified goal-based termination (both flat_world and corridor)
+            if self.goal_position is not None:
+                dist_to_goal: float = np.sqrt(
+                    (pos.x - self.goal_position.x)**2 + (pos.y - self.goal_position.y)**2
+                )
+                if dist_to_goal < self.config.simulation.goal_radius:
+                    terminated = True
+                    step_reward += self.config.rewards.goal
 
+            # Termination if robot falls
+            if pos.z < -5.0:
+                terminated = True
+
+            # Truncation for flat_world only (corridor has walls)
             if self.config.simulation.scene_type == "flat_world":
-                # Flat world: goal is reached when within goal_radius
-                if self.goal_position is not None:
-                    dist_to_goal: float = np.sqrt(
-                        (pos.x - self.goal_position.x)**2 + (pos.y - self.goal_position.y)**2
-                    )
-                    if dist_to_goal < self.config.simulation.goal_radius:
-                        terminated = True
-                        step_reward += self.config.rewards.goal
-
-                # Truncated if robot goes out of arena bounds
                 arena_x: float = self.config.simulation.corridor_length
                 arena_y: float = self.config.simulation.corridor_width
                 if abs(pos.x) > arena_x + 5.0 or abs(pos.y) > arena_y + 5.0:
                     truncated = True
-
-                # Truncated if robot falls
-                if pos.z < -5.0:
-                    terminated = True
-
-            else:
-                # Corridor mode: original termination conditions
-
-                # Truncated if robot goes out of corridor backward
-                if pos.x < -self.config.simulation.corridor_length:
-                    truncated = True
-
-                # Truncated if robot goes out of corridor side
-                if abs(pos.y) > self.config.simulation.corridor_width + 10.0:
-                    truncated = True
-
-                # Truncated if robot falls
-                if pos.z < -5.0:
-                    terminated = True
-
-                # Terminated if robot reaches goal (end of corridor)
-                if pos.x > self.config.simulation.corridor_length:
-                    terminated = True
-                    step_reward += self.config.rewards.goal
 
             # Scale reward
             step_reward *= self.config.training.reward_scale
