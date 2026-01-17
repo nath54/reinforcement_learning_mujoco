@@ -66,8 +66,8 @@ def play(
     camera: Camera = Camera()
     controls: Controls = Controls(physics, camera, render_mode=False)
 
-    # Setup robot tracking
-    robot_track: TrackRobot = TrackRobot(scene.mujoco_data)
+    # Setup robot tracking with goal position
+    robot_track: TrackRobot = TrackRobot(scene.mujoco_data, goal_position=scene.goal_position)
 
     # Setup agent dimensions
     view_range_grid: int = int(config.simulation.robot_view_range / config.simulation.env_precision)
@@ -336,7 +336,7 @@ def play(
             # Sync viewer
             viewer_instance.sync()
 
-            # Track robot
+            # Track robot (includes distance to goal)
             robot_track.track()
 
             # Increment step counter

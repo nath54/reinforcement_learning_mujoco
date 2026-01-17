@@ -58,8 +58,8 @@ def interactive(config: GlobalConfig, render_mode: bool = False) -> None:
     camera: Camera = Camera()
     controls: Controls = Controls(physics, camera, render_mode=render_mode)
 
-    # Setup robot tracking
-    robot_track: TrackRobot = TrackRobot(scene.mujoco_data)
+    # Setup robot tracking with goal position
+    robot_track: TrackRobot = TrackRobot(scene.mujoco_data, goal_position=scene.goal_position)
 
     # Load saved controls if in render mode
     if render_mode:
@@ -139,7 +139,7 @@ def interactive(config: GlobalConfig, render_mode: bool = False) -> None:
             # Sync the viewer
             viewer_instance.sync()
 
-            # Track the robot
+            # Track the robot (includes distance to goal)
             robot_track.track()
 
             # Get elapsed time

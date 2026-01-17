@@ -468,8 +468,10 @@ class SceneBuilder:
             )
         else:
             # Corridor (default)
-            # Set goal at end of corridor
-            self.goal_position = Vec3(self.config.simulation.corridor_length, 0.0, 0.5)
+            # Set goal beyond corridor end (obstacles stop at corridor_length)
+            goal_radius: float = self.config.simulation.goal_radius
+            goal_x: float = self.config.simulation.corridor_length + goal_radius + 5.0
+            self.goal_position = Vec3(goal_x, 0.0, 0.5)
             scene_comps = self.corridor.generate_corridor(
                 self.config.simulation.corridor_length,
                 self.config.simulation.corridor_width,
