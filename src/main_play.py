@@ -8,7 +8,7 @@ Or:
     python -m src.main --play --config config/main.yaml --model_path path/to/model.pt --live_vision
 """
 
-from typing import Any, cast
+from typing import Any, Tuple, cast
 
 import os
 import time
@@ -123,8 +123,8 @@ def play(
         print(f"Error loading model: {e}")
         return
 
-    # Setup environment for observation
-    env: CorridorEnv = CorridorEnv(config)
+    # Setup environment for observation (use same scene to share MuJoCo data)
+    env: CorridorEnv = CorridorEnv(config, scene=scene)
     env.reset()
 
     # Print controls
@@ -166,6 +166,9 @@ def play(
 
                 # Get vision data
                 vision_data: NDArray[np.float64] = obs[:vision_size]
+                
+                # Get state vector
+                state_vector: NDArray[np.float64] = obs[vision_size:]
 
                 # Reshape and resize vision data
                 vision_img: NDArray[np.float64] = vision_data.reshape((vision_height, vision_width))
@@ -179,13 +182,40 @@ def play(
                 # Get actions probabilities from the agent
                 raw_action_stats: NDArray[np.float64] = agent.get_action_statistics(obs)
 
-                # Display action statistics:
+                # Display action statistics and input info:
 
                 # Initialize y offset which is used for the new lines
-                y_offset: int = 30
+                y_offset: int = 20
+
+                # Display agent input statistics
+                cv2.putText(vision_img_color, "Agent Input:", (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+                y_offset += 15
+                
+                # Vision statistics
+                cv2.putText(vision_img_color, f"Vision: min={vision_data.min():.2f} max={vision_data.max():.2f}", 
+                           (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+                y_offset += 15
+                
+                # State vector info (first 13 components are: pos(3), rot(3), vel(3), prev_action(4))
+                if len(state_vector) >= 13:
+                    cv2.putText(vision_img_color, f"Pos: [{state_vector[0]:.2f}, {state_vector[1]:.2f}, {state_vector[2]:.2f}]",
+                               (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+                    y_offset += 15
+                    cv2.putText(vision_img_color, f"Vel: [{state_vector[6]:.2f}, {state_vector[7]:.2f}, {state_vector[8]:.2f}]",
+                               (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+                    y_offset += 15
+                
+                # Goal info if available
+                if config.model.include_goal and len(state_vector) >= 17:
+                    cv2.putText(vision_img_color, f"Goal: d={state_vector[13]:.2f} angle={state_vector[14]:.2f}",
+                               (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+                    y_offset += 15
+                
+                y_offset += 5  # Add spacing
 
                 # Display title of the action statistics
-                cv2.putText(vision_img_color, "Agent Output:", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                cv2.putText(vision_img_color, "Agent Output:", (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                y_offset += 15
 
                 # Display action statistics for each action (green for positive, red for negative)
                 #

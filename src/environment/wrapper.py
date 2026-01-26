@@ -60,14 +60,17 @@ class CorridorEnv(gym.Env):
     """
 
     #
-    def __init__(self, config: GlobalConfig) -> None:
+    def __init__(self, config: GlobalConfig, scene: SceneBuilder | None = None) -> None:
 
         # Store config
         self.config = config
 
-        # Build Scene
-        self.scene = SceneBuilder(config)
-        self.scene.build()
+        # Use provided scene OR create new one (backward compatible)
+        if scene is None:
+            self.scene = SceneBuilder(config)
+            self.scene.build()
+        else:
+            self.scene = scene
 
         # Store MuJoCo model and data
         self.model = self.scene.mujoco_model
