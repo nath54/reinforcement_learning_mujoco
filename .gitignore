@@ -6,4 +6,5 @@
 *.pyc
 *.pth
 trainings_exp
+trainings_pipeline
 __pycache__

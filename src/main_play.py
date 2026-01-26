@@ -166,7 +166,7 @@ def play(
 
                 # Get vision data
                 vision_data: NDArray[np.float64] = obs[:vision_size]
-                
+
                 # Get state vector
                 state_vector: NDArray[np.float64] = obs[vision_size:]
 
@@ -190,12 +190,12 @@ def play(
                 # Display agent input statistics
                 cv2.putText(vision_img_color, "Agent Input:", (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
                 y_offset += 15
-                
+
                 # Vision statistics
-                cv2.putText(vision_img_color, f"Vision: min={vision_data.min():.2f} max={vision_data.max():.2f}", 
+                cv2.putText(vision_img_color, f"Vision: min={vision_data.min():.2f} max={vision_data.max():.2f}",
                            (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
                 y_offset += 15
-                
+
                 # State vector info (first 13 components are: pos(3), rot(3), vel(3), prev_action(4))
                 if len(state_vector) >= 13:
                     cv2.putText(vision_img_color, f"Pos: [{state_vector[0]:.2f}, {state_vector[1]:.2f}, {state_vector[2]:.2f}]",
@@ -204,13 +204,13 @@ def play(
                     cv2.putText(vision_img_color, f"Vel: [{state_vector[6]:.2f}, {state_vector[7]:.2f}, {state_vector[8]:.2f}]",
                                (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
                     y_offset += 15
-                
+
                 # Goal info if available
                 if config.model.include_goal and len(state_vector) >= 17:
                     cv2.putText(vision_img_color, f"Goal: d={state_vector[13]:.2f} angle={state_vector[14]:.2f}",
                                (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
                     y_offset += 15
-                
+
                 y_offset += 5  # Add spacing
 
                 # Display title of the action statistics
