@@ -31,6 +31,7 @@ from .simulation.physics import Physics
 from .simulation.sensors import Camera
 from .simulation.controls import Controls
 from .utils.tracking import TrackRobot
+from .core.types import Vec3
 
 try:
     import cv2
@@ -158,6 +159,9 @@ def play(
         # Reward tracking (for live_vision display)
         episode_reward: float = 0.0
         step_reward: float = 0.0
+
+        # Goal tracking (for auto-reset)
+        goals_reached: int = 0
 
         # Main loop
         while viewer_instance.is_running() and not controls.quit_requested:
@@ -450,6 +454,33 @@ def play(
 
             # Increment step counter
             crt_step += 1
+
+            # Check if goal reached (auto-reset with scene regeneration)
+            if scene.goal_position is not None:
+                robot_pos_vec = scene.mujoco_data.xpos[robot_id]
+
+                # Calculate distance to goal
+                dist_to_goal = np.sqrt(
+                    (scene.goal_position.x - robot_pos_vec[0])**2 +
+                    (scene.goal_position.y - robot_pos_vec[1])**2
+                )
+
+                # If goal reached, regenerate scene and reset
+                if dist_to_goal < config.simulation.goal_radius:
+                    goals_reached += 1
+
+                    # Calculate total physical steps (agent steps * action_repeat)
+                    physical_steps = crt_step * config.simulation.action_repeat
+
+                    print(f"\n🎯 Goal reached: {goals_reached} times | Steps: {crt_step} agent, {physical_steps} physics | Reward: {episode_reward:.2f}")
+
+                    # Reset environment (this will randomize goal for flat_world and reset physics)
+                    env.reset()
+
+                    # Reset tracking variables
+                    episode_reward = 0.0
+                    step_reward = 0.0
+                    crt_step = 0
 
             # Timing
             time.sleep(1.0 / 400.0)
