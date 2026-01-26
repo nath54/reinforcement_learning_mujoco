@@ -155,6 +155,10 @@ def play(
         previous_action: NDArray[np.float64] = np.zeros(4, dtype=np.float64)
         crt_step: int = 0
 
+        # Reward tracking (for live_vision display)
+        episode_reward: float = 0.0
+        step_reward: float = 0.0
+
         # Main loop
         while viewer_instance.is_running() and not controls.quit_requested:
 
@@ -205,10 +209,41 @@ def play(
                                (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
                     y_offset += 15
 
-                # Goal info if available
-                if config.model.include_goal and len(state_vector) >= 17:
-                    cv2.putText(vision_img_color, f"Goal: d={state_vector[13]:.2f} angle={state_vector[14]:.2f}",
+                # Goal and reward info
+                if config.model.include_goal and scene.goal_position is not None:
+                    y_offset += 5  # Add spacing
+
+                    # Display absolute goal position
+                    cv2.putText(vision_img_color, "Goal (absolute):", (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+                    y_offset += 15
+                    cv2.putText(vision_img_color, f"  [{scene.goal_position.x:.2f}, {scene.goal_position.y:.2f}, {scene.goal_position.z:.2f}]",
                                (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+                    y_offset += 15
+
+                    # Display goal-relative coordinates from agent input (part of state vector)
+                    if len(state_vector) >= 17:
+                        dx = state_vector[13]  # dx (normalized)
+                        dy = state_vector[14]  # dy (normalized)
+                        distance = state_vector[15]  # distance
+                        angle = state_vector[16] * np.pi  # angle in radians (was normalized)
+
+                        cv2.putText(vision_img_color, "Goal (relative from input):", (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+                        y_offset += 15
+                        cv2.putText(vision_img_color, f"  dx={dx:.2f} dy={dy:.2f} d={distance:.2f}",
+                                   (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+                        y_offset += 15
+                        cv2.putText(vision_img_color, f"  angle={angle:.2f} rad ({np.degrees(angle):.1f}deg)",
+                                   (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+                        y_offset += 15
+
+                    y_offset += 5  # Add spacing
+
+                    # Display reward info (using environment's reward strategy for modularity)
+                    cv2.putText(vision_img_color, "Reward:", (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+                    y_offset += 15
+                    reward_color: Tuple[int, int, int] = (0, 255, 0) if step_reward >= 0 else (0, 0, 255)
+                    cv2.putText(vision_img_color, f"  step={step_reward:+.3f} total={episode_reward:+.2f}",
+                               (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, reward_color, 1)
                     y_offset += 15
 
                 y_offset += 5  # Add spacing
@@ -314,6 +349,9 @@ def play(
                     #
                     physics.set_wheel_speeds_directly(target_speeds)
 
+                    # Update environment's previous_action for reward calculation
+                    env.previous_action = target_speeds / max_speed
+
                 # If the control mode is continuous, set the target speeds based on the action
                 elif config.robot.control_mode == "continuous_vector":
 
@@ -337,6 +375,9 @@ def play(
                     # Set the wheel speeds
                     physics.set_wheel_speeds_directly(target_speeds)
 
+                    # Update environment's previous_action for reward calculation
+                    env.previous_action = raw_wheel_speeds
+
                 # If the control mode is continuous, set the target speeds based on the action
                 else:
                     # Clip the action to the range [-1, 1]
@@ -347,6 +388,10 @@ def play(
 
                     # Set the wheel speeds
                     physics.set_wheel_speeds_directly(target_speeds)
+
+                    # Update environment's previous_action for reward calculation
+                    # Convert target_speeds to normalized action (same as environment does)
+                    env.previous_action = target_speeds / max_speed
 
             # Number of physics steps to perform
             n_repeats: int = config.simulation.action_repeat if crt_step >= config.simulation.warmup_steps else 1
@@ -368,6 +413,40 @@ def play(
 
             # Track robot (includes distance to goal)
             robot_track.track()
+
+            # Calculate reward using environment's reward strategy (modular - respects reward config changes)
+            if crt_step >= config.simulation.warmup_steps and scene.goal_position is not None:
+                # Get current robot state for reward calculation
+                robot_pos_vec = scene.mujoco_data.xpos[robot_id]
+                robot_vel_vec = scene.mujoco_data.cvel[robot_id][:3]
+
+                # Convert to Vec3 for reward calculation
+                from src.core.types import Vec3
+                current_pos = Vec3(robot_pos_vec[0], robot_pos_vec[1], robot_pos_vec[2])
+                current_vel = Vec3(robot_vel_vec[0], robot_vel_vec[1], robot_vel_vec[2])
+
+                # Determine if stuck or backward (simplified checks for play mode)
+                velocity_magnitude = np.linalg.norm(robot_vel_vec[:2])  # XY velocity
+                is_stuck = velocity_magnitude < 0.01
+                is_backward = False  # Could be enhanced with more sophisticated detection
+
+                # Calculate step reward using environment's reward strategy (modular!)
+                # Use env.previous_action which is already tracked by the environment
+                step_reward = env.reward_strategy.compute(
+                    current_pos,
+                    current_vel,
+                    scene.goal_position,
+                    env.previous_action,
+                    crt_step,
+                    is_stuck,
+                    is_backward
+                )
+
+                # Accumulate episode reward
+                episode_reward += step_reward
+            else:
+                # No reward during warmup or without goal
+                step_reward = 0.0
 
             # Increment step counter
             crt_step += 1
