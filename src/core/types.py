@@ -89,6 +89,8 @@ class SimulationConfig:
     robot_view_range: float = 4.0
     max_steps: int = 30000
     env_precision: float = 0.2
+    vision_position_offset: float = 0.0  # Offset added to robot position when generating vision (meters)
+    vision_encoding_mode: str = "binary"  # Vision encoding: "binary", "binary_with_robot", "symlog"
     warmup_steps: int = 1000
     action_repeat: int = 10
     num_envs: int = 6

@@ -1,0 +1,37 @@
+# Curriculum Training Pipeline v2 HD (High Definition)
+# Enhanced with vision position offset and higher resolution
+# Progression: flat ground → obstacles → corridor
+
+name: "Curriculum V2 HD - Enhanced Vision"
+
+# Shared config (overrides stage configs to ensure compatible model shapes)
+shared:
+  state_history_length: 4    # Must be same for all stages
+  input_mode: "single_head"  # Must be same for all stages
+  include_goal: true         # Must be same for all stages
+
+stages:
+  - name: "Flat Ground Navigation"
+    config: "stage_01_flat.yaml"
+    max_episodes: 5000
+    early_stop_successes: 50
+
+  - name: "Flat Ground with Obstacles"  
+    config: "stage_02_obstacles.yaml"
+    max_episodes: 5000
+    early_stop_successes: 100
+
+  - name: "Corridor Empty"
+    config: "stage_03_corridor_empty.yaml"
+    max_episodes: 3000
+    early_stop_successes: 50
+
+  - name: "Corridor Simple Obstacles"
+    config: "stage_04_corridor_simple.yaml"
+    max_episodes: 5000
+    early_stop_successes: 100
+
+  - name: "Corridor Complex"
+    config: "stage_05_corridor_complex.yaml"
+    max_episodes: 10000
+    early_stop_successes: 0  # No early stop, train fully

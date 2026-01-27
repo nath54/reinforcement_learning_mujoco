@@ -76,6 +76,8 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
         previous_action: NDArray[np.float64],
         robot_view_range: float,
         goal_position: Vec3 | None = None,
+        vision_position_offset: float = 0.0,
+        vision_encoding_mode: str = "binary",
     ) -> ModelInput:
 
         """
@@ -88,11 +90,17 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
             previous_action: Previous action taken
             robot_view_range: Vision range in meters
             goal_position: Optional goal position for goal-relative coordinates
+            vision_position_offset: Offset added to robot X position for vision center (meters)
+            vision_encoding_mode: Encoding mode - "binary", "binary_with_robot", or "symlog"
         """
 
-        # 1. Grid Coords
-        robot_grid_x: int = int((robot_pos.x - self.env_bounds.corner_top_left.x) / self.env_precision)
-        robot_grid_y: int = int((robot_pos.y - self.env_bounds.corner_top_left.y) / self.env_precision)
+        # 1. Grid Coords (apply offset to vision center in robot's forward direction)
+        # The offset shifts the vision center ahead of the robot
+        vision_center_x = robot_pos.x + vision_position_offset
+        vision_center_y = robot_pos.y
+        
+        robot_grid_x: int = int((vision_center_x - self.env_bounds.corner_top_left.x) / self.env_precision)
+        robot_grid_y: int = int((vision_center_y - self.env_bounds.corner_top_left.y) / self.env_precision)
         view_range_grid: int = int(robot_view_range / self.env_precision)
 
         start_x: int = robot_grid_x - view_range_grid
@@ -121,9 +129,37 @@ class EfficientCollisionSystemBetweenEnvAndAgent:
             vision_matrix[paste_start_x:paste_end_x, paste_start_y:paste_end_y] = \
                 self.env_matrix[inter_start_x:inter_end_x, inter_start_y:inter_end_y]
 
-        # Binarize/Normalize vision (just checking for non-zero height implies obstacle)
-        # Using sign() to just show obstacle presence vs absence
-        vision_matrix = np.sign(vision_matrix)
+        # Apply vision encoding based on mode
+        if vision_encoding_mode == "binary":
+            # Mode 1: Binary obstacles only (original behavior)
+            # 0 = empty, 1 = obstacle
+            vision_matrix = np.sign(vision_matrix)
+            
+        elif vision_encoding_mode == "binary_with_robot":
+            # Mode 2: Binary obstacles + robot position marker
+            # 0 = empty, 0.5 = robot, 1 = obstacle
+            vision_matrix = np.sign(vision_matrix)
+            
+            # Add robot position marker at vision center
+            center_x = view_range_grid
+            center_y = view_range_grid
+            if 0 <= center_x < vision_w and 0 <= center_y < vision_h:
+                vision_matrix[center_x, center_y] = 0.5
+                
+        elif vision_encoding_mode == "symlog":
+            # Mode 3: Symlog transformation of obstacle heights
+            # Handles both positive and negative values smoothly
+            # symlog(x) = sign(x) * log(1 + |x|)
+            vision_matrix = np.sign(vision_matrix) * np.log1p(np.abs(vision_matrix))
+            
+            # Add robot position as negative marker
+            center_x = view_range_grid
+            center_y = view_range_grid
+            if 0 <= center_x < vision_w and 0 <= center_y < vision_h:
+                vision_matrix[center_x, center_y] = 0.2  # Low positive value for robot
+        else:
+            # Default to binary if mode unknown
+            vision_matrix = np.sign(vision_matrix)
 
         # 3. State Vector (Normalized) - Base 13 dimensions
         base_state: list[float] = [

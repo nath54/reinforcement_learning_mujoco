@@ -381,7 +381,9 @@ class CorridorEnv(gym.Env):
         goal_for_sensor: Vec3 | None = self.goal_position if self.include_goal else None
         model_input = self.collision_system.get_robot_vision_and_state(
             pos, rot, vel, self.previous_action, self.config.simulation.robot_view_range,
-            goal_position=goal_for_sensor
+            goal_position=goal_for_sensor,
+            vision_position_offset=self.config.simulation.vision_position_offset,
+            vision_encoding_mode=self.config.simulation.vision_encoding_mode
         )
 
         # Flatten vision and concatenate
