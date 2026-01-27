@@ -26,7 +26,7 @@ def main():
     all_passed = True
 
     # 1. Check directory structure
-    print("📁 Checking directory structure...")
+    print("Checking directory structure...")
     required_dirs = [
         "src/core",
         "src/simulation",
@@ -45,9 +45,8 @@ def main():
     print()
 
     # 2. Check required files
-    print("📄 Checking required files...")
+    print("Checking required files...")
     required_files = [
-        "config/main.yaml",
         "src/main.py",
         "src/core/config_loader.py",
         "src/core/types.py",
@@ -64,7 +63,7 @@ def main():
     print()
 
     # 3. Check Python dependencies
-    print("🐍 Checking Python dependencies...")
+    print("Checking Python dependencies...")
     dependencies = {
         "mujoco": "MuJoCo physics engine",
         "torch": "PyTorch deep learning",
@@ -92,7 +91,7 @@ def main():
     print()
 
     # 4. Test config loading
-    print("⚙️  Testing configuration loading...")
+    print("Testing configuration loading...")
     try:
         from src.core.config_loader import load_config
         cfg = load_config('config/main.yaml')
@@ -114,7 +113,7 @@ def main():
     print()
 
     # 5. Test environment creation
-    print("🏃 Testing environment creation...")
+    print("Testing environment creation...")
     try:
         from src.core.config_loader import load_config
         from src.environment.wrapper import CorridorEnv
@@ -138,7 +137,7 @@ def main():
     print()
 
     # 6. Test PPO agent
-    print("🤖 Testing PPO agent creation...")
+    print("Testing PPO agent creation...")
     try:
         from src.algorithms.ppo import PPOAgent
 
@@ -163,14 +162,14 @@ def main():
     # Summary
     print("=" * 60)
     if all_passed:
-        print("✓ All checks passed! Installation is valid.")
+        print("\033[92mAll checks passed! Installation is valid.\033[0m")
         print()
         print("Next steps:")
         print("  1. Train: python -m src.main --train")
         print("  2. Play: python -m src.main --interactive")
         print("  3. See QUICKSTART.md for more options")
     else:
-        print("✗ Some checks failed.")
+        print("\033[91mSome checks failed.\033[0m")
         print()
         print("Common fixes:")
         print("  • Install missing dependencies: pip install -r requirements.txt")
