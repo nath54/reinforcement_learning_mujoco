@@ -472,7 +472,7 @@ def play(
                     # Calculate total physical steps (agent steps * action_repeat)
                     physical_steps = crt_step * config.simulation.action_repeat
 
-                    print(f"\n🎯 Goal reached: {goals_reached} times | Steps: {crt_step} agent, {physical_steps} physics | Reward: {episode_reward:.2f}")
+                    print(f"\n\033[1;32mGoal reached: {goals_reached} times | Steps: {crt_step} agent, {physical_steps} physics | Reward: {episode_reward:.2f}\033[m")
 
                     # Reset environment (this will randomize goal for flat_world and reset physics)
                     env.reset()
