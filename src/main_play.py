@@ -24,7 +24,7 @@ from mujoco import viewer as viewer_
 
 from .core.config_loader import load_config
 from .core.types import GlobalConfig
-from .environment.wrapper import CorridorEnv
+from .environment.wrapper import SimulationEnv
 from .algorithms.ppo import PPOAgent
 from .simulation.generator import SceneBuilder
 from .simulation.physics import Physics
@@ -125,7 +125,7 @@ def play(
         return
 
     # Setup environment for observation (use same scene to share MuJoCo data)
-    env: CorridorEnv = CorridorEnv(config, scene=scene)
+    env: SimulationEnv = SimulationEnv(config, scene=scene)
     env.reset()
 
     # Print controls

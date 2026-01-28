@@ -25,19 +25,19 @@ from functools import partial
 
 from .core.config_loader import load_config
 from .core.types import GlobalConfig
-from .environment.wrapper import CorridorEnv
+from .environment.wrapper import SimulationEnv
 from .algorithms.ppo import PPOAgent
 from .utils.memory import Memory
 from .utils.parallel_env import SubprocVecEnv
 
 
 # Factory function for creating environments
-def make_env(config: GlobalConfig) -> CorridorEnv:
+def make_env(config: GlobalConfig) -> SimulationEnv:
     """
     Factory function for creating environments
     """
 
-    return CorridorEnv(config)
+    return SimulationEnv(config)
 
 
 # Train the PPO agent with parallel environments
