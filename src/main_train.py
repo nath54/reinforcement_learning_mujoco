@@ -153,6 +153,9 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
     i_episode: int = 0
     best_reward: float = -float('inf')
 
+    #
+    avg_rewards_list: list[float] = []
+
     # Early stopping tracking
     consecutive_successes: int = 0
     success_threshold: float = getattr(config.training, 'early_stopping_success_threshold', 90.0)
@@ -241,10 +244,18 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
             min_reward: float = min(interval_completed_rewards)
             max_reward: float = max(interval_completed_rewards)
 
+            #
+            avg_rewards_list.append(avg_reward)
+
+            #
+            last_5_rewards_avgs = np.mean(avg_rewards_list[-5:])
+            last_10_rewards_avgs = np.mean(avg_rewards_list[-10:])
+
             # Print interval summary
             print(f"\n--- Update Summary ---")
             print(f"Episodes in interval: {len(interval_completed_rewards)}")
-            print(f"Avg reward: {avg_reward:.2f} | Min: {min_reward:.2f} | Max: {max_reward:.2f} | Best: {best_reward:.2f}")
+            print(f"Avg reward: \033[1m{avg_reward:.2f}\033[0m | Min: \033[2m{min_reward:.2f}\033[0m | Max: \033[2m{max_reward:.2f}\033[0m | Best: {best_reward:.2f}")
+            print(f"Last 5 avg: \033[1m{last_5_rewards_avgs:.2f}\033[0m | Last 10 avg: \033[1m{last_10_rewards_avgs:.2f}\033[0m")
             print(f"----------------------")
 
             # Update progress bar
