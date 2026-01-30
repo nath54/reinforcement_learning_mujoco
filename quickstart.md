@@ -36,7 +36,7 @@ robot_corridor_modular/
 python -c "from src.core.config_loader import load_config; print('Config OK')"
 
 # Test environment
-python -c "from src.core.config_loader import load_config; from src.environment.wrapper import CorridorEnv; cfg = load_config('config/main.yaml'); env = CorridorEnv(cfg); print('Environment OK')"
+python -c "from src.core.config_loader import load_config; from src.environment.wrapper import SimulationEnv; cfg = load_config('config/main.yaml'); env = SimulationEnv(cfg); print('Environment OK')"
 ```
 
 ## Usage

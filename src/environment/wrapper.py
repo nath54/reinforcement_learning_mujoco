@@ -54,7 +54,7 @@ def quaternion_to_euler(
 
 
 # Main Environment Class
-class CorridorEnv(gym.Env):
+class SimulationEnv(gym.Env):
     """
     Gymnasium environment for the robot corridor task.
     """

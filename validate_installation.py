@@ -116,10 +116,10 @@ def main():
     print("Testing environment creation...")
     try:
         from src.core.config_loader import load_config
-        from src.environment.wrapper import CorridorEnv
+        from src.environment.wrapper import SimulationEnv
 
         cfg = load_config('config/main.yaml')
-        env = CorridorEnv(cfg)
+        env = SimulationEnv(cfg)
         print_status("  Environment creation", True)
 
         # Test reset
