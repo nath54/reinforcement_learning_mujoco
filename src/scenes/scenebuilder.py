@@ -17,6 +17,10 @@ from math import floor, sin, pi
 from src.core.types import Vec3, Point2d, Rect2d, ValType, GlobalConfig
 from src.simulation.robot import Robot
 
+from .utils_geom import create_geom
+from .corridor import Corridor
+from .flatworld import FlatWorld
+
 
 # Scene Builder class to assemble the full model
 class SceneBuilder:

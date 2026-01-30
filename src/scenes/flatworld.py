@@ -18,6 +18,7 @@ from src.core.types import Vec3, Point2d, Rect2d, ValType, GlobalConfig
 from src.simulation.robot import Robot
 
 
+from .utils_geom import create_geom
 
 # FlatWorld generator class
 class FlatWorld:
