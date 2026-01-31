@@ -5,3 +5,4 @@ mujoco
 gymnasium
 opencv-python
 torch
+tqdm
