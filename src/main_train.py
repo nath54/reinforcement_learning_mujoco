@@ -8,7 +8,16 @@ Or:
     python -m src.main --train --config config/main.yaml
 """
 
+from .core.config_loader import load_config
+from .core.types import GlobalConfig
+from .environment.wrapper import SimulationEnv
+from .algorithms.ppo import PPOAgent
+from .utils.memory import Memory
+from .utils.parallel_env import SubprocVecEnv
+
 from typing import Any, Optional
+
+import torch
 
 import os
 import argparse
@@ -18,17 +27,8 @@ import multiprocessing as mp
 import numpy as np
 from numpy.typing import NDArray
 
-import torch
-
 from tqdm import tqdm
 from functools import partial
-
-from .core.config_loader import load_config
-from .core.types import GlobalConfig
-from .environment.wrapper import SimulationEnv
-from .algorithms.ppo import PPOAgent
-from .utils.memory import Memory
-from .utils.parallel_env import SubprocVecEnv
 
 
 # Factory function for creating environments

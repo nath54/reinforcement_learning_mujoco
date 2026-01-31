@@ -14,14 +14,16 @@ Usage:
     python -m src.main --pipeline config/pipeline.yaml
 """
 
-import argparse
-import multiprocessing as mp
-
-from .core.config_loader import load_config
 from .main_train import train
 from .main_play import play
 from .main_interactive import interactive
 from .main_pipeline import run_pipeline
+
+from .core.config_loader import load_config
+
+import argparse
+import multiprocessing as mp
+
 
 
 # Parse command line arguments
