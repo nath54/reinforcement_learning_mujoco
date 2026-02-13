@@ -153,7 +153,7 @@ def play(config: GlobalConfig, model_path: str, live_vision: bool = False) -> No
         scene.mujoco_data.xpos[robot_id][2] = 0.2
 
         # Initialize variables
-        previous_action: NDArray[np.float64] = np.zeros(4, dtype=np.float64)
+        _previous_action: NDArray[np.float64] = np.zeros(4, dtype=np.float64)
         crt_step: int = 0
 
         # Reward tracking (for live_vision display)

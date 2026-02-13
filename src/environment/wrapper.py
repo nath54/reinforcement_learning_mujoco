@@ -149,10 +149,14 @@ class SimulationEnv(gym.Env):
         # Reset Physics
         self.physics.reset()
 
-        # Lift robot
+        # Lift robot to spawn position
         robot_id: int = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
         if robot_id != -1:
-            self.data.xpos[robot_id][2] = 0.2
+            # Use configured spawn position (default z=0.2 for warmup lift)
+            spawn_z: float = 0.2
+            if self.config.simulation.robot_start_position is not None:
+                spawn_z = self.config.simulation.robot_start_position[2]
+            self.data.xpos[robot_id][2] = spawn_z
 
         # Warmup
         self.physics.robot_wheels_speed[:] = 0

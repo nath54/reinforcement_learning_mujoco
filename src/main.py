@@ -56,6 +56,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--live_vision", action="store_true", help="Show live vision window"
     )
+    parser.add_argument(
+        "--robot_xml",
+        type=str,
+        default=None,
+        help="Override robot XML path from config",
+    )
 
     #
     args: argparse.Namespace = parser.parse_args()
@@ -84,6 +90,9 @@ def main() -> None:
         #
         cfg = load_config(args.config)
         #
+        if args.robot_xml:
+            cfg.robot.xml_path = args.robot_xml
+        #
         try:
             mp.set_start_method("spawn", force=True)
         except RuntimeError:
@@ -96,6 +105,9 @@ def main() -> None:
         #
         cfg = load_config(args.config)
         #
+        if args.robot_xml:
+            cfg.robot.xml_path = args.robot_xml
+        #
         model_path = args.model_path if args.model_path else cfg.training.model_path
         #
         play(cfg, model_path, args.live_vision)
@@ -104,6 +116,9 @@ def main() -> None:
     elif args.interactive:
         #
         cfg = load_config(args.config)
+        #
+        if args.robot_xml:
+            cfg.robot.xml_path = args.robot_xml
         #
         interactive(cfg, args.render_mode)
 

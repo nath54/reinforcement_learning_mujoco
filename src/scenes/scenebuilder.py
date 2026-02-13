@@ -11,11 +11,47 @@ import random
 import mujoco
 import xml.etree.ElementTree as ET
 
+from math import sin, cos
+
 from src.core.types import Vec3, Point2d, Rect2d, GlobalConfig
 from src.simulation.robot import Robot
 
 from .corridor import Corridor
 from .flatworld import FlatWorld
+from .load_from_custom_xml import CustomXmlScene
+
+
+# Helper function to convert euler angles (roll, pitch, yaw) to quaternion (w, x, y, z)
+def euler_to_quaternion(
+    roll: float, pitch: float, yaw: float
+) -> tuple[float, float, float, float]:
+    """
+    Convert euler angles (roll, pitch, yaw) in radians to quaternion (w, x, y, z).
+
+    Args:
+        roll: Rotation around X axis (radians)
+        pitch: Rotation around Y axis (radians)
+        yaw: Rotation around Z axis (radians)
+
+    Returns:
+        Tuple (w, x, y, z) quaternion components
+    """
+
+    #
+    cr: float = cos(roll * 0.5)
+    sr: float = sin(roll * 0.5)
+    cp: float = cos(pitch * 0.5)
+    sp: float = sin(pitch * 0.5)
+    cy: float = cos(yaw * 0.5)
+    sy: float = sin(yaw * 0.5)
+
+    #
+    w: float = cr * cp * cy + sr * sp * sy
+    x: float = sr * cp * cy - cr * sp * sy
+    y: float = cr * sp * cy + sr * cp * sy
+    z: float = cr * cp * sy - sr * sp * cy
+
+    return (w, x, y, z)
 
 
 # Scene Builder class to assemble the full model
@@ -30,11 +66,20 @@ class SceneBuilder:
         self.config = config
         self.corridor = Corridor()
         self.flat_world = FlatWorld()
+        self.custom_xml_scene = CustomXmlScene()
         self.robot = Robot(config.robot)
         self.environment_rects: list[Rect2d] = []
 
         # Goal position (will be set during build)
         self.goal_position: Optional[Vec3] = None
+
+        # Robot spawn position from config (default: (0, 0, 0.5))
+        rsp: Optional[tuple[float, float, float]] = (
+            config.simulation.robot_start_position
+        )
+        self.robot_spawn_pos: Vec3 = (
+            Vec3(rsp[0], rsp[1], rsp[2]) if rsp is not None else Vec3(0.0, 0.0, 0.5)
+        )
 
         # Approximate bounds
         margin: float = 250.0
@@ -49,6 +94,12 @@ class SceneBuilder:
                     config.simulation.corridor_length + margin,
                     config.simulation.corridor_width + margin,
                 ),
+            )
+        elif config.simulation.scene_type == "custom_xml":
+            # Will be computed after loading the custom XML
+            self.env_bounds: Rect2d = Rect2d(
+                Point2d(-margin, -margin),
+                Point2d(margin, margin),
             )
         else:
             # Corridor bounds (original)
@@ -170,10 +221,65 @@ class SceneBuilder:
         #
         return scene_comps
 
+    #
+    def build_custom_xml(self) -> dict[str, Any]:
+        """
+        Build scene from a custom pre-authored MuJoCo XML file.
+        """
+
+        # Get custom XML path from config
+        custom_xml_path: Optional[str] = self.config.simulation.custom_xml_path
+        #
+        if custom_xml_path is None:
+            raise ValueError(
+                "custom_xml_path must be set in simulation config "
+                "when using scene_type 'custom_xml'"
+            )
+
+        # Load scene from custom XML
+        scene_comps: dict[str, Any] = self.custom_xml_scene.load_scene(custom_xml_path)
+
+        # Update env_bounds from the loaded scene geometry
+        self.env_bounds = self.custom_xml_scene.compute_scene_bounds(
+            scene_comps["body"]
+        )
+
+        # Set goal position from custom config or compute from scene bounds
+        custom_goal: Optional[tuple[float, float, float]] = (
+            self.config.simulation.custom_xml_goal_position
+        )
+        #
+        if custom_goal is not None:
+            #
+            self.goal_position = Vec3(custom_goal[0], custom_goal[1], custom_goal[2])
+        else:
+            # Place goal at the far end of the scene bounds
+            goal_x: float = self.env_bounds.corner_bottom_right.x - 15.0
+            self.goal_position = Vec3(goal_x, 0.0, 0.5)
+
+        # Add goal marker sphere
+        goal_radius: float = self.config.simulation.goal_radius
+        goal_geom: ET.Element = ET.Element("geom")
+        goal_geom.set("name", "goal_marker")
+        goal_geom.set("type", "sphere")
+        goal_geom.set(
+            "pos",
+            f"{self.goal_position.x} {self.goal_position.y} {self.goal_position.z}",
+        )
+        goal_geom.set("size", str(goal_radius))
+        goal_geom.set("rgba", "1 0.2 0.2 0.4")  # Semi-transparent red
+        goal_geom.set("contype", "0")  # No collision type
+        goal_geom.set("conaffinity", "0")  # No collision affinity
+        scene_comps["body"].append(goal_geom)
+
+        #
+        return scene_comps
+
     # Build the scene
     def build(self) -> None:
         """
-        Build the complete scene based on scene_type
+        Build the complete scene based on scene_type.
+        First builds the scene geometry, then injects the robot separately.
         """
 
         #
@@ -182,6 +288,10 @@ class SceneBuilder:
         if self.config.simulation.scene_type == "flat_world":
             #
             scene_comps = self.build_flatworld()
+        #
+        elif self.config.simulation.scene_type == "custom_xml":
+            #
+            scene_comps = self.build_custom_xml()
         #
         elif self.config.simulation.scene_type == "corridor":
             #
@@ -194,6 +304,8 @@ class SceneBuilder:
         self.environment_rects = cast(
             list[Rect2d], scene_comps.get("environment_rects", [])
         )
+
+        # Extract robot components (separate from scene)
         robot_comps: dict[str, Any] = self.robot.extract_robot_from_xml()
 
         # Assemble XML
@@ -228,13 +340,28 @@ class SceneBuilder:
         mat: ET.Element
         a: ET.Element
         #
+        # Track added asset names to avoid duplicates (custom XML may share names)
+        added_asset_names: set[str] = set()
+        #
         for texture in self.robot.create_textures().values():
             asset.append(texture)
+            added_asset_names.add(texture.get("name", ""))
         for mat in self.robot.create_enhanced_materials().values():
             asset.append(mat)
+            added_asset_names.add(mat.get("name", ""))
         if robot_comps["asset"]:
             for a in robot_comps["asset"]:
-                asset.append(a)
+                asset_name: str = a.get("name", "")
+                if asset_name not in added_asset_names:
+                    asset.append(a)
+                    added_asset_names.add(asset_name)
+        # Add scene assets (from custom XML), skipping duplicates
+        if scene_comps.get("asset"):
+            for a in scene_comps["asset"]:
+                asset_name = a.get("name", "")
+                if asset_name not in added_asset_names:
+                    asset.append(a)
+                    added_asset_names.add(asset_name)
         root.append(asset)
 
         # Worldbody
@@ -246,9 +373,22 @@ class SceneBuilder:
             for b in scene_comps["body"]:
                 worldbody.append(b)
 
+        # Inject robot into scene (separate from scene generation)
         if robot_comps["robot_body"]:
             self.robot.enhance_robot_visuals(robot_comps["robot_body"])
-            robot_comps["robot_body"].set("pos", "0 0 0.5")  # Reset pos
+            # Use configurable robot spawn position
+            robot_comps["robot_body"].set(
+                "pos",
+                f"{self.robot_spawn_pos.x} {self.robot_spawn_pos.y} "
+                f"{self.robot_spawn_pos.z}",
+            )
+            # Apply orientation if configured (euler -> quaternion)
+            rso: Optional[tuple[float, float, float]] = (
+                self.config.simulation.robot_start_orientation
+            )
+            if rso is not None:
+                qw, qx, qy, qz = euler_to_quaternion(rso[0], rso[1], rso[2])
+                robot_comps["robot_body"].set("quat", f"{qw} {qx} {qy} {qz}")
             worldbody.append(robot_comps["robot_body"])
         root.append(worldbody)
 

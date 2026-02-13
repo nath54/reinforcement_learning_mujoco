@@ -129,6 +129,21 @@ class SimulationConfig:
     iterations: int = 500  # Solver iterations
     ground_friction: str = "1 0.005 0.0001"  # Sliding, Torsional, Rolling friction
 
+    # Custom XML scene settings
+    custom_xml_path: Optional[str] = None  # Path to custom scene XML file
+    custom_xml_goal_position: Optional[tuple[float, float, float]] = (
+        None  # Goal override (x, y, z)
+    )
+
+    # Robot spawn settings (used by all scene types)
+    robot_start_position: Optional[tuple[float, float, float]] = (
+        None  # Default: (0, 0, 0.5)
+    )
+    robot_start_speed: Optional[float] = None  # Initial speed (default: 0)
+    robot_start_orientation: Optional[tuple[float, float, float]] = (
+        None  # Euler angles (roll, pitch, yaw) in radians
+    )
+
 
 @dataclass
 class RobotConfig:
