@@ -144,6 +144,9 @@ class SimulationConfig:
         None  # Euler angles (roll, pitch, yaw) in radians
     )
 
+    # Scale settings
+    scene_scale: float = 1.0  # Scale factor for the scene geometry
+
 
 @dataclass
 class RobotConfig:
@@ -151,6 +154,7 @@ class RobotConfig:
     action_smoothing_k: int = 5
     control_mode: str = "discrete_direction"
     max_speed: float = 10.0
+    robot_scale: float = 1.0  # Scale factor for the robot body
 
 
 @dataclass

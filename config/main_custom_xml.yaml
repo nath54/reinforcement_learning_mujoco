@@ -1,8 +1,9 @@
 simulation:
   scene_type: "custom_xml"
   custom_xml_path: "xml/corridor_3x100_no_full_obstacles.xml"
-  custom_xml_goal_position: [90.0, 0.0, 0.5]
-  robot_start_position: [1.0, 0.0, 0.3]
+  scene_scale: 2.0
+  custom_xml_goal_position: [95.0, 0.0, 1.0]
+  robot_start_position: [2.0, 0.0, 0.6]
   corridor_length: 100.0
   corridor_width: 3.0
   robot_view_range: 4.0

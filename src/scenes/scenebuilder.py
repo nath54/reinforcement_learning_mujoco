@@ -54,6 +54,56 @@ def euler_to_quaternion(
     return (w, x, y, z)
 
 
+# Helper function to scale a geom element's position and size
+def _scale_geom_element(geom: ET.Element, scale: float) -> None:
+    """
+    Scale a geom element's position and size attributes in-place.
+
+    Args:
+        geom: The XML geom element to scale
+        scale: Scale factor to apply
+    """
+
+    # Scale position
+    pos_str: str = geom.get("pos", "")
+    if pos_str:
+        parts: list[float] = [float(v) * scale for v in pos_str.split()]
+        geom.set("pos", " ".join(str(v) for v in parts))
+
+    # Scale size
+    size_str: str = geom.get("size", "")
+    if size_str:
+        parts = [float(v) * scale for v in size_str.split()]
+        geom.set("size", " ".join(str(v) for v in parts))
+
+
+# Helper function to scale all geoms within a body element (recursively)
+def _scale_body_element(body: ET.Element, scale: float) -> None:
+    """
+    Scale all geom children and nested bodies within a body element.
+    Also scales the body's own position.
+
+    Args:
+        body: The XML body element to scale
+        scale: Scale factor to apply
+    """
+
+    # Scale body position
+    pos_str: str = body.get("pos", "")
+    if pos_str:
+        parts: list[float] = [float(v) * scale for v in pos_str.split()]
+        body.set("pos", " ".join(str(v) for v in parts))
+
+    # Scale all child geoms
+    child: ET.Element
+    for child in body.findall("geom"):
+        _scale_geom_element(child, scale)
+
+    # Scale nested bodies recursively
+    for child in body.findall("body"):
+        _scale_body_element(child, scale)
+
+
 # Scene Builder class to assemble the full model
 class SceneBuilder:
     """
@@ -364,6 +414,9 @@ class SceneBuilder:
                     added_asset_names.add(asset_name)
         root.append(asset)
 
+        # Scale factors
+        scene_scale: float = self.config.simulation.scene_scale
+
         # Worldbody
         worldbody: ET.Element = ET.Element("worldbody")
         #
@@ -371,11 +424,18 @@ class SceneBuilder:
         #
         if scene_comps["body"]:
             for b in scene_comps["body"]:
+                # Apply scene scale to all scene geoms
+                if scene_scale != 1.0:
+                    _scale_geom_element(b, scene_scale)
                 worldbody.append(b)
 
         # Inject robot into scene (separate from scene generation)
         if robot_comps["robot_body"]:
             self.robot.enhance_robot_visuals(robot_comps["robot_body"])
+            # Apply robot scale
+            robot_scale: float = self.config.robot.robot_scale
+            if robot_scale != 1.0:
+                _scale_body_element(robot_comps["robot_body"], robot_scale)
             # Use configurable robot spawn position
             robot_comps["robot_body"].set(
                 "pos",
