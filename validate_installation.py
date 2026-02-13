@@ -5,8 +5,8 @@ Run this to verify everything is set up correctly.
 """
 
 import sys
-import os
 from pathlib import Path
+
 
 def print_status(test_name: str, passed: bool, message: str = "") -> None:
     """Print test status"""
@@ -16,6 +16,7 @@ def print_status(test_name: str, passed: bool, message: str = "") -> None:
     msg = f" - {message}" if message else ""
     print(f"{color}{status}{reset} {test_name}{msg}")
     return passed
+
 
 def main():
     print("=" * 60)
@@ -84,6 +85,7 @@ def main():
     # Optional dependencies
     try:
         import cv2
+
         print_status("  cv2 (optional)", True, "OpenCV for live vision")
     except ImportError:
         print_status("  cv2 (optional)", True, "Not installed (live vision disabled)")
@@ -94,18 +96,21 @@ def main():
     print("Testing configuration loading...")
     try:
         from src.core.config_loader import load_config
-        cfg = load_config('config/main.yaml')
+
+        cfg = load_config("config/main.yaml")
         print_status("  Config loading", True)
 
         # Check config structure
-        has_simulation = hasattr(cfg, 'simulation')
-        has_robot = hasattr(cfg, 'robot')
-        has_rewards = hasattr(cfg, 'rewards')
-        has_training = hasattr(cfg, 'training')
-        has_model = hasattr(cfg, 'model')
+        has_simulation = hasattr(cfg, "simulation")
+        has_robot = hasattr(cfg, "robot")
+        has_rewards = hasattr(cfg, "rewards")
+        has_training = hasattr(cfg, "training")
+        has_model = hasattr(cfg, "model")
 
-        all_passed &= print_status("  Config structure",
-                                   has_simulation and has_robot and has_rewards and has_training and has_model)
+        all_passed &= print_status(
+            "  Config structure",
+            has_simulation and has_robot and has_rewards and has_training and has_model,
+        )
 
     except Exception as e:
         all_passed &= print_status("  Config loading", False, str(e))
@@ -118,7 +123,7 @@ def main():
         from src.core.config_loader import load_config
         from src.environment.wrapper import SimulationEnv
 
-        cfg = load_config('config/main.yaml')
+        cfg = load_config("config/main.yaml")
         env = SimulationEnv(cfg)
         print_status("  Environment creation", True)
 
@@ -177,6 +182,7 @@ def main():
         print("  • Run from project root directory")
         sys.exit(1)
     print("=" * 60)
+
 
 if __name__ == "__main__":
     main()

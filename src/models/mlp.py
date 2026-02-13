@@ -14,10 +14,7 @@ class PolicyMLP(nn.Module):
     """
 
     def __init__(
-        self,
-        input_dim: int,
-        output_dim: int,
-        hidden_sizes: list[int]
+        self, input_dim: int, output_dim: int, hidden_sizes: list[int]
     ) -> None:
 
         #
@@ -41,11 +38,7 @@ class PolicyMLP(nn.Module):
         # Note: No softmax here, strictly logits for Categorical
         self.net = nn.Sequential(*layers)
 
-    def forward(
-        self,
-        x: torch.Tensor
-    ) -> torch.Tensor:
-
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass
         """

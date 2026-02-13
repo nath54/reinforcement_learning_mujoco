@@ -24,13 +24,7 @@ from src.environment.reward_strategy import VelocityReward
 
 
 # Helper function for quaternion conversion
-def quaternion_to_euler(
-    w: float,
-    x: float,
-    y: float,
-    z: float
-) -> Vec3:
-
+def quaternion_to_euler(w: float, x: float, y: float, z: float) -> Vec3:
     """
     Convert quaternion to euler angles (roll, pitch, yaw)
     """
@@ -83,7 +77,7 @@ class SimulationEnv(gym.Env):
         self.collision_system = EfficientCollisionSystemBetweenEnvAndAgent(
             environment_obstacles=self.scene.environment_rects,
             env_bounds=self.scene.env_bounds,
-            env_precision=config.simulation.env_precision
+            env_precision=config.simulation.env_precision,
         )
 
         # Reward Strategy
@@ -96,7 +90,9 @@ class SimulationEnv(gym.Env):
         self.include_goal: bool = config.model.include_goal
 
         # State & Observation Spaces
-        view_range_grid: int = int(config.simulation.robot_view_range / config.simulation.env_precision)
+        view_range_grid: int = int(
+            config.simulation.robot_view_range / config.simulation.env_precision
+        )
         vision_width: int = 2 * view_range_grid
         vision_height: int = 2 * view_range_grid
         self.vision_size: int = vision_width * vision_height
@@ -118,10 +114,14 @@ class SimulationEnv(gym.Env):
             self.action_dim = 4
         elif config.robot.control_mode == "continuous_vector":
             # [0]: Speed, [1]: Rotation
-            self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
+            self.action_space = spaces.Box(
+                low=-1.0, high=1.0, shape=(2,), dtype=np.float32
+            )
             self.action_dim = 2
-        else: # "continuous_wheels"
-            self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(4,), dtype=np.float32)
+        else:  # "continuous_wheels"
+            self.action_space = spaces.Box(
+                low=-1.0, high=1.0, shape=(4,), dtype=np.float32
+            )
             self.action_dim = 4
 
         # Action smoothing
@@ -134,11 +134,8 @@ class SimulationEnv(gym.Env):
 
     #
     def reset(
-        self,
-        seed: Any = None,
-        options: Any = None
+        self, seed: Any = None, options: Any = None
     ) -> tuple[NDArray[np.float64], dict[str, Any]]:
-
         """
         Reset environment to initial state
         """
@@ -176,15 +173,19 @@ class SimulationEnv(gym.Env):
         robot_pos: Vec3 = Vec3(
             self.data.xpos[robot_id][0],
             self.data.xpos[robot_id][1],
-            self.data.xpos[robot_id][2]
+            self.data.xpos[robot_id][2],
         )
-        if hasattr(self.reward_strategy, 'reset'):
-            self.reward_strategy.reset(goal_position=self.goal_position, robot_position=robot_pos)
+        if hasattr(self.reward_strategy, "reset"):
+            self.reward_strategy.reset(
+                goal_position=self.goal_position, robot_position=robot_pos
+            )
 
         return self.get_observation(), {}
 
     #
-    def step(self, action: NDArray[np.float64]) -> tuple[NDArray[np.float64], float, bool, bool, dict[str, Any]]:
+    def step(
+        self, action: NDArray[np.float64]
+    ) -> tuple[NDArray[np.float64], float, bool, bool, dict[str, Any]]:
         """
         Execute one step in the environment.
 
@@ -203,32 +204,38 @@ class SimulationEnv(gym.Env):
 
         # 1. Process Actions
         if self.config.robot.control_mode == "discrete_direction":
-
             # Get action index
             action_idx: int = int(action) if np.isscalar(action) else int(action[0])
 
             # Set target speeds based on action
-            if action_idx == 0: target_speeds[:] = max_speed
-            elif action_idx == 1: target_speeds[:] = -max_speed
-            elif action_idx == 2: target_speeds = np.array([-max_speed, max_speed, -max_speed, max_speed])
-            elif action_idx == 3: target_speeds = np.array([max_speed, -max_speed, max_speed, -max_speed])
+            if action_idx == 0:
+                target_speeds[:] = max_speed
+            elif action_idx == 1:
+                target_speeds[:] = -max_speed
+            elif action_idx == 2:
+                target_speeds = np.array([-max_speed, max_speed, -max_speed, max_speed])
+            elif action_idx == 3:
+                target_speeds = np.array([max_speed, -max_speed, max_speed, -max_speed])
 
             # Set wheel speeds
             self.physics.set_wheel_speeds_directly(target_speeds)
 
             # Map discrete to simulated continuous for state vector
             simulated = np.zeros(4)
-            if action_idx == 0: simulated[:] = 1.0
-            elif action_idx == 1: simulated[:] = -1.0
-            elif action_idx == 2: simulated = np.array([-1.0, 1.0, -1.0, 1.0])
-            elif action_idx == 3: simulated = np.array([1.0, -1.0, 1.0, -1.0])
+            if action_idx == 0:
+                simulated[:] = 1.0
+            elif action_idx == 1:
+                simulated[:] = -1.0
+            elif action_idx == 2:
+                simulated = np.array([-1.0, 1.0, -1.0, 1.0])
+            elif action_idx == 3:
+                simulated = np.array([1.0, -1.0, 1.0, -1.0])
 
             # Update previous action
             self.previous_action = simulated
 
         # Continuous vector control
         elif self.config.robot.control_mode == "continuous_vector":
-
             # Clip action & rotation
             speed: float = np.clip(action[0], -1.0, 1.0)
             rotation: float = np.clip(action[1], -1.0, 1.0)
@@ -254,7 +261,6 @@ class SimulationEnv(gym.Env):
 
         # Continuous wheels control
         else:
-
             # Clip action
             action = np.clip(action, -1.0, 1.0)
 
@@ -276,7 +282,6 @@ class SimulationEnv(gym.Env):
 
         # Physics steps
         for _ in range(self.config.simulation.action_repeat):
-
             # Uses air_drag and deceleration logic
             self.physics.apply_additionnal_physics()
 
@@ -288,7 +293,9 @@ class SimulationEnv(gym.Env):
 
             # Extract Data for Reward
             rid: int = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
-            pos: Vec3 = Vec3(self.data.xpos[rid][0], self.data.xpos[rid][1], self.data.xpos[rid][2])
+            pos: Vec3 = Vec3(
+                self.data.xpos[rid][0], self.data.xpos[rid][1], self.data.xpos[rid][2]
+            )
             vel_x: float = self.data.cvel[rid][0]
 
             # Stuck logic check
@@ -300,7 +307,8 @@ class SimulationEnv(gym.Env):
                 #
                 action_idx = int(action) if np.isscalar(action) else int(action[0])
                 #
-                if action_idx == 1: is_going_backward = True
+                if action_idx == 1:
+                    is_going_backward = True
             #
             elif np.mean(self.previous_action) < -0.3:
                 #
@@ -308,14 +316,20 @@ class SimulationEnv(gym.Env):
 
             # Compute Reward using goal distance strategy
             step_reward: float = self.reward_strategy.compute(
-                pos, Vec3(vel_x, 0, 0), self.goal_position, self.previous_action,
-                self.current_step_count, is_stuck, is_going_backward
+                pos,
+                Vec3(vel_x, 0, 0),
+                self.goal_position,
+                self.previous_action,
+                self.current_step_count,
+                is_stuck,
+                is_going_backward,
             )
 
             # Unified goal-based termination (both flat_world and corridor)
             if self.goal_position is not None:
                 dist_to_goal: float = np.sqrt(
-                    (pos.x - self.goal_position.x)**2 + (pos.y - self.goal_position.y)**2
+                    (pos.x - self.goal_position.x) ** 2
+                    + (pos.y - self.goal_position.y) ** 2
                 )
                 if dist_to_goal < self.config.simulation.goal_radius:
                     terminated = True
@@ -336,14 +350,17 @@ class SimulationEnv(gym.Env):
             step_reward *= self.config.training.reward_scale
 
             # Add bonus for termination
-            if terminated: step_reward += 0.5
-            if truncated: step_reward -= 0.5
+            if terminated:
+                step_reward += 0.5
+            if truncated:
+                step_reward -= 0.5
 
             # Add step reward to total
             total_reward += step_reward
 
             # Break if terminated or truncated
-            if terminated or truncated: break
+            if terminated or truncated:
+                break
 
         # Enforce max_steps truncation
         if self.current_step_count >= self.config.simulation.max_steps:
@@ -351,10 +368,20 @@ class SimulationEnv(gym.Env):
 
         # 3. Observation & Info
         rid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
-        pos_arr = [self.data.xpos[rid][0], self.data.xpos[rid][1], self.data.xpos[rid][2]]
+        pos_arr = [
+            self.data.xpos[rid][0],
+            self.data.xpos[rid][1],
+            self.data.xpos[rid][2],
+        ]
 
         # Return observation, reward, terminated, truncated, info
-        return self.get_observation(), total_reward, terminated, truncated, {"robot_pos": pos_arr}
+        return (
+            self.get_observation(),
+            total_reward,
+            terminated,
+            truncated,
+            {"robot_pos": pos_arr},
+        )
 
     #
     def get_observation(self) -> NDArray[np.float64]:
@@ -368,23 +395,33 @@ class SimulationEnv(gym.Env):
 
         # Get robot position
         rid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "robot")
-        pos = Vec3(self.data.xpos[rid][0], self.data.xpos[rid][1], self.data.xpos[rid][2])
+        pos = Vec3(
+            self.data.xpos[rid][0], self.data.xpos[rid][1], self.data.xpos[rid][2]
+        )
 
         # Get robot rotation
         quat = self.data.xquat[rid]
-        rot = quaternion_to_euler(quat[0], quat[1], quat[2], quat[3]) # w, x, y, z
+        rot = quaternion_to_euler(quat[0], quat[1], quat[2], quat[3])  # w, x, y, z
 
         # Get robot velocity
-        vel = Vec3(self.data.cvel[rid][0], self.data.cvel[rid][1], self.data.cvel[rid][2])
+        vel = Vec3(
+            self.data.cvel[rid][0], self.data.cvel[rid][1], self.data.cvel[rid][2]
+        )
 
         # Get robot vision and state (pass goal if include_goal is enabled)
         goal_for_sensor: Vec3 | None = self.goal_position if self.include_goal else None
         model_input = self.collision_system.get_robot_vision_and_state(
-            pos, rot, vel, self.previous_action, self.config.simulation.robot_view_range,
+            pos,
+            rot,
+            vel,
+            self.previous_action,
+            self.config.simulation.robot_view_range,
             goal_position=goal_for_sensor,
             vision_position_offset=self.config.simulation.vision_position_offset,
-            vision_encoding_mode=self.config.simulation.vision_encoding_mode
+            vision_encoding_mode=self.config.simulation.vision_encoding_mode,
         )
 
         # Flatten vision and concatenate
-        return np.concatenate((model_input.vision.flatten(), model_input.state_vector)).astype(np.float64)
+        return np.concatenate(
+            (model_input.vision.flatten(), model_input.state_vector)
+        ).astype(np.float64)

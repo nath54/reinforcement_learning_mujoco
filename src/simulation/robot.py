@@ -29,9 +29,9 @@ class Robot:
             self.tree: ET.ElementTree = ET.parse(self.xml_file_path)
             self.root: ET.Element = self.tree.getroot()
         except FileNotFoundError:
-             # Fallback or error handling if running from different dir
-             print(f"Warning: Robot XML {self.xml_file_path} not found.")
-             self.root = ET.Element('mujoco') # Dummy
+            # Fallback or error handling if running from different dir
+            print(f"Warning: Robot XML {self.xml_file_path} not found.")
+            self.root = ET.Element("mujoco")  # Dummy
 
     #
     def extract_robot_from_xml(self) -> dict[str, Optional[Any]]:
@@ -43,8 +43,12 @@ class Robot:
 
         # Initialize components
         components: dict[str, Optional[Any]] = {
-            'compiler': None, 'option': None, 'default': None,
-            'asset': None, 'robot_body': None, 'actuators': None
+            "compiler": None,
+            "option": None,
+            "default": None,
+            "asset": None,
+            "robot_body": None,
+            "actuators": None,
         }
 
         # Iterating over children
@@ -52,23 +56,23 @@ class Robot:
         child: ET.Element
         #
         for child in self.root:
-            if child.tag == 'compiler':
-                components['compiler'] = child
-            elif child.tag == 'option':
-                components['option'] = child
-            elif child.tag == 'default':
-                components['default'] = child
-            elif child.tag == 'asset':
-                components['asset'] = child
-            elif child.tag == 'worldbody':
+            if child.tag == "compiler":
+                components["compiler"] = child
+            elif child.tag == "option":
+                components["option"] = child
+            elif child.tag == "default":
+                components["default"] = child
+            elif child.tag == "asset":
+                components["asset"] = child
+            elif child.tag == "worldbody":
                 #
                 body: ET.Element
                 #
                 for body in child:
-                    if body.get('name') == 'robot':
-                        components['robot_body'] = body
-            elif child.tag == 'actuator':
-                components['actuators'] = child
+                    if body.get("name") == "robot":
+                        components["robot_body"] = body
+            elif child.tag == "actuator":
+                components["actuators"] = child
 
         return components
 
@@ -80,8 +84,20 @@ class Robot:
 
         # Initialize materials
         robot_materials: list[dict[str, str]] = [
-            {'name': 'mat_chassis_violet', 'rgba': '0.39 0.13 0.63 1', 'shininess': '0.3', 'specular': '0.5', 'texture': 'tex_chassis'},
-            {'name': 'mat_wheel_black', 'rgba': '0.1 0.1 0.1 1', 'shininess': '0.6', 'specular': '0.3', 'texture': 'tex_wheel_radius'}
+            {
+                "name": "mat_chassis_violet",
+                "rgba": "0.39 0.13 0.63 1",
+                "shininess": "0.3",
+                "specular": "0.5",
+                "texture": "tex_chassis",
+            },
+            {
+                "name": "mat_wheel_black",
+                "rgba": "0.1 0.1 0.1 1",
+                "shininess": "0.6",
+                "specular": "0.3",
+                "texture": "tex_wheel_radius",
+            },
         ]
 
         materials: dict[str, ET.Element] = {}
@@ -91,8 +107,8 @@ class Robot:
         mat_config: dict[str, str]
         #
         for mat_config in robot_materials:
-            material: ET.Element = ET.Element('material', **mat_config)
-            materials[mat_config['name']] = material
+            material: ET.Element = ET.Element("material", **mat_config)
+            materials[mat_config["name"]] = material
 
         return materials
 
@@ -107,14 +123,28 @@ class Robot:
 
         # Wheel texture
         textures["tex_wheel_radius"] = ET.Element(
-            'texture', name='tex_wheel_radius', type='2d', builtin='checker',
-            rgb1='0.8 0.2 0.2', rgb2='0.1 0.1 0.1', width='32', height='32', mark='random', markrgb='0.8 0.8 0.2'
+            "texture",
+            name="tex_wheel_radius",
+            type="2d",
+            builtin="checker",
+            rgb1="0.8 0.2 0.2",
+            rgb2="0.1 0.1 0.1",
+            width="32",
+            height="32",
+            mark="random",
+            markrgb="0.8 0.8 0.2",
         )
 
         # Chassis texture
         textures["tex_chassis"] = ET.Element(
-            'texture', name='tex_chassis', type='2d', builtin='gradient',
-            rgb1='0.39 0.13 0.63', rgb2='0 0 0', width='32', height='32'
+            "texture",
+            name="tex_chassis",
+            type="2d",
+            builtin="gradient",
+            rgb1="0.39 0.13 0.63",
+            rgb2="0 0 0",
+            width="32",
+            height="32",
         )
 
         return textures
@@ -134,16 +164,16 @@ class Robot:
         #
         geom: ET.Element
         #
-        for geom in robot_body.iter('geom'):
-            if 'chassis' in geom.get('name', ''):
-                geom.set('material', 'mat_chassis_violet')
+        for geom in robot_body.iter("geom"):
+            if "chassis" in geom.get("name", ""):
+                geom.set("material", "mat_chassis_violet")
 
         # Apply wheel material
         #
         body: ET.Element
         #
-        for body in robot_body.iter('body'):
-            if body.get('name', '').startswith('wheel_'):
-                for geom in body.iter('geom'):
-                    if geom.get('name', '').startswith('geom_'):
-                        geom.set('material', 'mat_wheel_black')
+        for body in robot_body.iter("body"):
+            if body.get("name", "").startswith("wheel_"):
+                for geom in body.iter("geom"):
+                    if geom.get("name", "").startswith("geom_"):
+                        geom.set("material", "mat_wheel_black")

@@ -18,11 +18,7 @@ class FeatureTokenizer(nn.Module):
     """
 
     #
-    def __init__(
-        self,
-        num_features: int,
-        embed_dim: int
-    ) -> None:
+    def __init__(self, num_features: int, embed_dim: int) -> None:
 
         # Initialize parent
         super().__init__()
@@ -35,9 +31,9 @@ class FeatureTokenizer(nn.Module):
         self.feature_embeddings = nn.Parameter(torch.randn(num_features, embed_dim))
 
         # Linear projection for feature values
-        self.value_projections: nn.ModuleList = nn.ModuleList([
-            nn.Linear(1, embed_dim) for _ in range(num_features)
-        ])
+        self.value_projections: nn.ModuleList = nn.ModuleList(
+            [nn.Linear(1, embed_dim) for _ in range(num_features)]
+        )
 
         # Layer norm
         self.layer_norm = nn.LayerNorm(embed_dim)
@@ -60,8 +56,10 @@ class FeatureTokenizer(nn.Module):
         #
         for i in range(self.num_features):
             # Project feature value
-            feat_val: torch.Tensor = x[:, i:i+1]  # (batch, 1)
-            projected: torch.Tensor = self.value_projections[i](feat_val)  # (batch, embed_dim)
+            feat_val: torch.Tensor = x[:, i : i + 1]  # (batch, 1)
+            projected: torch.Tensor = self.value_projections[i](
+                feat_val
+            )  # (batch, embed_dim)
 
             # Add feature embedding
             token: torch.Tensor = projected + self.feature_embeddings[i]
@@ -81,12 +79,7 @@ class TransformerBlock(nn.Module):
     """
 
     #
-    def __init__(
-        self,
-        embed_dim: int,
-        n_heads: int,
-        dropout: float = 0.1
-    ) -> None:
+    def __init__(self, embed_dim: int, n_heads: int, dropout: float = 0.1) -> None:
 
         # Initialize parent
         super().__init__()
@@ -102,7 +95,7 @@ class TransformerBlock(nn.Module):
             nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(embed_dim * 4, embed_dim),
-            nn.Dropout(dropout)
+            nn.Dropout(dropout),
         )
 
         #
@@ -150,7 +143,7 @@ class StateTransformer(nn.Module):
         n_heads: int = 4,
         n_layers: int = 2,
         dropout: float = 0.1,
-        output_dim: Optional[int] = None
+        output_dim: Optional[int] = None,
     ) -> None:
 
         # Initialize parent
@@ -167,10 +160,9 @@ class StateTransformer(nn.Module):
         self.cls_token = nn.Parameter(torch.randn(1, 1, embed_dim))
 
         # Transformer layers
-        self.transformer_layers: nn.ModuleList = nn.ModuleList([
-            TransformerBlock(embed_dim, n_heads, dropout)
-            for _ in range(n_layers)
-        ])
+        self.transformer_layers: nn.ModuleList = nn.ModuleList(
+            [TransformerBlock(embed_dim, n_heads, dropout) for _ in range(n_layers)]
+        )
 
         # Output projection
         self.output_dim: int = output_dim or embed_dim
@@ -197,7 +189,9 @@ class StateTransformer(nn.Module):
 
         # Prepend [CLS] token
         cls_tokens: torch.Tensor = self.cls_token.expand(batch_size, -1, -1)
-        tokens = torch.cat([cls_tokens, tokens], dim=1)  # (batch, 1 + num_features, embed_dim)
+        tokens = torch.cat(
+            [cls_tokens, tokens], dim=1
+        )  # (batch, 1 + num_features, embed_dim)
 
         # Apply transformer layers
         #

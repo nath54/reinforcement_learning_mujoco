@@ -13,8 +13,6 @@ from numpy.typing import NDArray
 
 from math import log
 
-from src.core.types import ModelConfig
-from src.models.factory import create_policy_network
 from src.utils.memory import Memory
 
 
@@ -35,7 +33,7 @@ class ActorCritic(nn.Module):
         action_std_max: float = 1.0,
         actor_hidden_gain: float = 1.414,
         actor_output_gain: float = 0.01,
-        control_mode: str = "continuous_wheels"
+        control_mode: str = "continuous_wheels",
     ) -> None:
 
         super(ActorCritic, self).__init__()
@@ -46,7 +44,9 @@ class ActorCritic(nn.Module):
         self.action_std_max: float = action_std_max
 
         if self.control_mode != "discrete_direction":
-            self.action_log_std = nn.Parameter(torch.full((action_dim,), log(action_std_init)))
+            self.action_log_std = nn.Parameter(
+                torch.full((action_dim,), log(action_std_init))
+            )
 
         self.vision_shape: tuple[int, int] = vision_shape
         self.state_vector_dim: int = state_vector_dim
@@ -60,7 +60,7 @@ class ActorCritic(nn.Module):
             nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Flatten()
+            nn.Flatten(),
         )
 
         # Calculate CNN output size
@@ -73,10 +73,7 @@ class ActorCritic(nn.Module):
 
         # Encoder for State Vector
         self.state_encoder = nn.Sequential(
-            nn.Linear(state_vector_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU()
+            nn.Linear(state_vector_dim, 64), nn.ReLU(), nn.Linear(64, 64), nn.ReLU()
         )
 
         # Fusion Dimension
@@ -92,7 +89,7 @@ class ActorCritic(nn.Module):
             nn.ReLU(),
             nn.Linear(128, 64),
             nn.Tanh(),
-            nn.Linear(64, action_dim)
+            nn.Linear(64, action_dim),
         )
 
         # Initialize actor weights
@@ -101,7 +98,7 @@ class ActorCritic(nn.Module):
         #
         actor_layers = [layer for layer in self.actor if isinstance(layer, nn.Linear)]
         for i, layer in enumerate(actor_layers):
-            is_output_layer = (i == len(actor_layers) - 1)
+            is_output_layer = i == len(actor_layers) - 1
             gain = actor_output_gain if is_output_layer else actor_hidden_gain
             nn.init.orthogonal_(layer.weight, gain=gain)
             nn.init.constant_(layer.bias, 0.0)
@@ -112,7 +109,7 @@ class ActorCritic(nn.Module):
             nn.Tanh(),
             nn.Linear(256, 64),
             nn.Tanh(),
-            nn.Linear(64, 1)
+            nn.Linear(64, 1),
         )
 
     def forward(self) -> None:
@@ -120,10 +117,12 @@ class ActorCritic(nn.Module):
 
     def _process_input(self, state: torch.Tensor) -> torch.Tensor:
         """Process input: split vision and state, encode both, fuse"""
-        vision_flat: torch.Tensor = state[:, :self.vision_size]
-        state_vec: torch.Tensor = state[:, self.vision_size:]
+        vision_flat: torch.Tensor = state[:, : self.vision_size]
+        state_vec: torch.Tensor = state[:, self.vision_size :]
 
-        vision_img: torch.Tensor = vision_flat.view(-1, 1, self.vision_shape[0], self.vision_shape[1])
+        vision_img: torch.Tensor = vision_flat.view(
+            -1, 1, self.vision_shape[0], self.vision_shape[1]
+        )
 
         vision_features: torch.Tensor = self.cnn(vision_img)
         state_features: torch.Tensor = self.state_encoder(state_vec)
@@ -141,9 +140,11 @@ class ActorCritic(nn.Module):
             action_logprob = dist.log_prob(action)
         else:
             action_mean = self.actor(features)
-            action_std = torch.exp(self.action_log_std).clamp(
-                min=self.action_std_min, max=self.action_std_max
-            ).to(state.device)
+            action_std = (
+                torch.exp(self.action_log_std)
+                .clamp(min=self.action_std_min, max=self.action_std_max)
+                .to(state.device)
+            )
             dist = torch.distributions.Normal(action_mean, action_std)
             action = dist.sample()
             action_logprob = dist.log_prob(action).sum(axis=-1)
@@ -155,20 +156,26 @@ class ActorCritic(nn.Module):
         features: torch.Tensor = self._process_input(state)
         return self.actor(features)
 
-    def evaluate(self, state: torch.Tensor, action: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def evaluate(
+        self, state: torch.Tensor, action: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Evaluate actions"""
         features: torch.Tensor = self._process_input(state)
 
         if self.control_mode == "discrete_direction":
             action_logits = self.actor(features)
             dist = torch.distributions.Categorical(logits=action_logits)
-            action_logprobs = dist.log_prob(action.squeeze(-1) if action.ndim > 1 else action)
+            action_logprobs = dist.log_prob(
+                action.squeeze(-1) if action.ndim > 1 else action
+            )
             dist_entropy = dist.entropy()
         else:
             action_mean = self.actor(features)
-            action_std = torch.exp(self.action_log_std).clamp(
-                min=self.action_std_min, max=self.action_std_max
-            ).to(state.device)
+            action_std = (
+                torch.exp(self.action_log_std)
+                .clamp(min=self.action_std_min, max=self.action_std_max)
+                .to(state.device)
+            )
             dist = torch.distributions.Normal(action_mean, action_std)
             action_logprobs = dist.log_prob(action).sum(axis=-1)
             dist_entropy = dist.entropy().sum(axis=-1)
@@ -203,7 +210,7 @@ class PPOAgent:
         action_std_max: float = 1.0,
         actor_hidden_gain: float = 1.414,
         actor_output_gain: float = 0.01,
-        control_mode: str = "continuous_wheels"
+        control_mode: str = "continuous_wheels",
     ) -> None:
 
         self.gamma: float = gamma
@@ -216,49 +223,64 @@ class PPOAgent:
         self.grad_clip_max_norm: float = grad_clip_max_norm
 
         # Detect device
-        self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device: torch.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
         print(f"PPOAgent using device: {self.device}")
 
         self.action_dim: int = action_dim
 
-        self.policy: ActorCritic = ActorCritic(
-            state_dim, action_dim, vision_shape,
-            state_vector_dim=state_vector_dim,
-            action_std_init=action_std_init,
-            action_std_min=action_std_min,
-            action_std_max=action_std_max,
-            actor_hidden_gain=actor_hidden_gain,
-            actor_output_gain=actor_output_gain,
-            control_mode=control_mode
-        ).float().to(self.device)
+        self.policy: ActorCritic = (
+            ActorCritic(
+                state_dim,
+                action_dim,
+                vision_shape,
+                state_vector_dim=state_vector_dim,
+                action_std_init=action_std_init,
+                action_std_min=action_std_min,
+                action_std_max=action_std_max,
+                actor_hidden_gain=actor_hidden_gain,
+                actor_output_gain=actor_output_gain,
+                control_mode=control_mode,
+            )
+            .float()
+            .to(self.device)
+        )
 
         self.optimizer: optim.Adam = optim.Adam(self.policy.parameters(), lr=lr)
 
-        self.policy_old: ActorCritic = ActorCritic(
-            state_dim, action_dim, vision_shape,
-            state_vector_dim=state_vector_dim,
-            action_std_init=action_std_init,
-            action_std_min=action_std_min,
-            action_std_max=action_std_max,
-            actor_hidden_gain=actor_hidden_gain,
-            actor_output_gain=actor_output_gain,
-            control_mode=control_mode
-        ).float().to(self.device)
+        self.policy_old: ActorCritic = (
+            ActorCritic(
+                state_dim,
+                action_dim,
+                vision_shape,
+                state_vector_dim=state_vector_dim,
+                action_std_init=action_std_init,
+                action_std_min=action_std_min,
+                action_std_max=action_std_max,
+                actor_hidden_gain=actor_hidden_gain,
+                actor_output_gain=actor_output_gain,
+                control_mode=control_mode,
+            )
+            .float()
+            .to(self.device)
+        )
 
         self.policy_old.load_state_dict(self.policy.state_dict())
 
         self.MseLoss: nn.MSELoss = nn.MSELoss()
 
-    def select_action(self, state: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    def select_action(
+        self, state: NDArray[np.float64]
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """
         Select action from policy
         """
 
         with torch.no_grad():
-
             state_tensor: torch.Tensor = torch.FloatTensor(state).to(self.device)
 
-            is_single_obs: bool = (state.ndim == 1)
+            is_single_obs: bool = state.ndim == 1
             if is_single_obs:
                 state_tensor = state_tensor.unsqueeze(0)
 
@@ -281,7 +303,6 @@ class PPOAgent:
         """
 
         with torch.no_grad():
-
             state_tensor = torch.FloatTensor(state).to(self.device)
 
             if state.ndim == 1:
@@ -296,9 +317,8 @@ class PPOAgent:
         self,
         memory: Memory,
         next_state: NDArray[np.float64],
-        next_done: NDArray[np.float64]
+        next_done: NDArray[np.float64],
     ) -> None:
-
         """
         Update policy using PPO
         """
@@ -306,10 +326,16 @@ class PPOAgent:
         # Convert memory to tensors
         old_states: torch.Tensor = torch.stack(memory.states).to(self.device).detach()
         old_actions: torch.Tensor = torch.stack(memory.actions).to(self.device).detach()
-        old_logprobs: torch.Tensor = torch.tensor(np.array(memory.logprobs), dtype=torch.float32).to(self.device).detach()
+        old_logprobs: torch.Tensor = (
+            torch.tensor(np.array(memory.logprobs), dtype=torch.float32)
+            .to(self.device)
+            .detach()
+        )
 
         # Flatten for training
-        old_states_flat: torch.Tensor = old_states.view(-1, self.policy.vision_size + self.policy.state_vector_dim)
+        old_states_flat: torch.Tensor = old_states.view(
+            -1, self.policy.vision_size + self.policy.state_vector_dim
+        )
 
         if self.control_mode == "discrete_direction":
             old_actions_flat = old_actions.view(-1, 1)
@@ -324,21 +350,31 @@ class PPOAgent:
         next_value: torch.Tensor
         #
         with torch.no_grad():
-            values = self.policy.critic(self.policy._process_input(old_states_flat)).view(len(memory.states), -1)
+            values = self.policy.critic(
+                self.policy._process_input(old_states_flat)
+            ).view(len(memory.states), -1)
 
             next_state_tensor = torch.FloatTensor(next_state).to(self.device)
             if next_state.ndim == 1:
                 next_state_tensor = next_state_tensor.unsqueeze(0)
 
-            next_value = self.policy.critic(self.policy._process_input(next_state_tensor))
+            next_value = self.policy.critic(
+                self.policy._process_input(next_state_tensor)
+            )
 
         # Calculate GAE
         rewards: NDArray[np.float64] = np.array(memory.rewards)
         is_terminals: NDArray[np.float64] = np.array(memory.is_terminals)
 
-        rewards_t: torch.Tensor = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-        is_terminals_t: torch.Tensor = torch.tensor(is_terminals, dtype=torch.float32).to(self.device)
-        next_done_t: torch.Tensor = torch.tensor(next_done, dtype=torch.float32).to(self.device)
+        rewards_t: torch.Tensor = torch.tensor(rewards, dtype=torch.float32).to(
+            self.device
+        )
+        is_terminals_t: torch.Tensor = torch.tensor(
+            is_terminals, dtype=torch.float32
+        ).to(self.device)
+        next_done_t: torch.Tensor = torch.tensor(next_done, dtype=torch.float32).to(
+            self.device
+        )
 
         returns: torch.Tensor = torch.zeros_like(rewards_t).to(self.device)
         advantages: torch.Tensor = torch.zeros_like(rewards_t).to(self.device)
@@ -357,7 +393,11 @@ class PPOAgent:
                 next_non_terminal = 1.0 - is_terminals_t[t + 1]
                 next_val = values[t + 1].squeeze()
 
-            delta = rewards_t[t] + self.gamma * next_val * next_non_terminal - values[t].squeeze()
+            delta = (
+                rewards_t[t]
+                + self.gamma * next_val * next_non_terminal
+                - values[t].squeeze()
+            )
             gae = delta + self.gamma * self.gae_lambda * next_non_terminal * gae
 
             advantages[t] = gae
@@ -377,13 +417,17 @@ class PPOAgent:
             state_values: torch.Tensor
             dist_entropy: torch.Tensor
             #
-            logprobs, state_values, dist_entropy = self.policy.evaluate(old_states_flat, old_actions_flat)
+            logprobs, state_values, dist_entropy = self.policy.evaluate(
+                old_states_flat, old_actions_flat
+            )
             state_values = torch.squeeze(state_values)
 
             ratios: torch.Tensor = torch.exp(logprobs - old_logprobs_flat)
 
             surr1: torch.Tensor = ratios * advantages
-            surr2: torch.Tensor = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+            surr2: torch.Tensor = (
+                torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+            )
 
             loss: torch.Tensor = (
                 -torch.min(surr1, surr2)
@@ -393,7 +437,9 @@ class PPOAgent:
 
             self.optimizer.zero_grad()
             loss.mean().backward()
-            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.grad_clip_max_norm)
+            torch.nn.utils.clip_grad_norm_(
+                self.policy.parameters(), self.grad_clip_max_norm
+            )
             self.optimizer.step()
 
         # Copy new weights to old policy

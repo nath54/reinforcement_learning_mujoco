@@ -82,14 +82,13 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
     print(f"Using {num_envs} parallel environments")
 
     envs: SubprocVecEnv = SubprocVecEnv(
-        [
-            partial(make_env, config=config)
-            for _ in range(num_envs)
-        ]
+        [partial(make_env, config=config) for _ in range(num_envs)]
     )
 
     # Calculate dimensions
-    view_range_grid: int = int(config.simulation.robot_view_range / config.simulation.env_precision)
+    view_range_grid: int = int(
+        config.simulation.robot_view_range / config.simulation.env_precision
+    )
     vision_width: int = 2 * view_range_grid
     vision_height: int = 2 * view_range_grid
     vision_size: int = vision_width * vision_height
@@ -109,7 +108,9 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
 
     # Create agent
     agent: PPOAgent = PPOAgent(
-        state_dim, action_dim, (vision_width, vision_height),
+        state_dim,
+        action_dim,
+        (vision_width, vision_height),
         state_vector_dim=state_vector_dim,
         lr=config.training.learning_rate,
         gamma=config.training.gamma,
@@ -124,21 +125,24 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
         action_std_max=config.model.action_std_max,
         actor_hidden_gain=config.model.actor_hidden_gain,
         actor_output_gain=config.model.actor_output_gain,
-        control_mode=config.robot.control_mode
+        control_mode=config.robot.control_mode,
     )
 
     # Initialize memory
     memory: Memory = Memory()
 
     # Load weights if specified
-    if config.training.load_weights_from \
-        and os.path.exists(config.training.load_weights_from):
+    if config.training.load_weights_from and os.path.exists(
+        config.training.load_weights_from
+    ):
         #
         print(f"Loading weights from {config.training.load_weights_from}")
         #
         try:
             #
-            agent.policy.load_state_dict(torch.load(config.training.load_weights_from, map_location=agent.device))
+            agent.policy.load_state_dict(
+                torch.load(config.training.load_weights_from, map_location=agent.device)
+            )
             agent.policy_old.load_state_dict(agent.policy.state_dict())
             #
             print("Weights loaded successfully")
@@ -151,16 +155,22 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
     episode_rewards: list[float] = [0.0] * num_envs
     episode_steps: list[int] = [0] * num_envs
     i_episode: int = 0
-    best_reward: float = -float('inf')
+    best_reward: float = -float("inf")
 
     #
     avg_rewards_list: list[float] = []
 
     # Early stopping tracking
     consecutive_successes: int = 0
-    success_threshold: float = getattr(config.training, 'early_stopping_success_threshold', 90.0)
-    required_successes: int = getattr(config.training, 'early_stopping_consecutive_successes', 50)
-    early_stopping_enabled: bool = getattr(config.training, 'early_stopping_enabled', False)
+    success_threshold: float = getattr(
+        config.training, "early_stopping_success_threshold", 90.0
+    )
+    required_successes: int = getattr(
+        config.training, "early_stopping_consecutive_successes", 50
+    )
+    early_stopping_enabled: bool = getattr(
+        config.training, "early_stopping_enabled", False
+    )
 
     state: NDArray[np.float32] = envs.reset()
 
@@ -184,7 +194,6 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
         t: int
         #
         for t in range(steps_per_update):
-
             # Select action
             action, action_logprob = agent.select_action(state)
 
@@ -201,7 +210,6 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
 
             # Update tracking
             for idx in range(num_envs):
-
                 # Update episode tracking
                 episode_rewards[idx] += reward[idx]
                 episode_steps[idx] += 1
@@ -214,11 +222,13 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
                     interval_completed_rewards.append(ep_reward)
 
                     # Print episode info to terminal
-                    print(f"\n[Episode {i_episode + 1}] Reward: {ep_reward:.2f} | Steps: {ep_steps}")
+                    print(
+                        f"\n[Episode {i_episode + 1}] Reward: {ep_reward:.2f} | Steps: {ep_steps}"
+                    )
 
                     # Log immediately (Ctrl+C safe)
                     try:
-                        with open(training_log_path, 'a') as f:
+                        with open(training_log_path, "a") as f:
                             f.write(f"{ep_reward}\n")
                             f.flush()
                     #
@@ -240,7 +250,9 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
 
         # Logging
         if len(interval_completed_rewards) > 0:
-            avg_reward: float = sum(interval_completed_rewards) / len(interval_completed_rewards)
+            avg_reward: float = sum(interval_completed_rewards) / len(
+                interval_completed_rewards
+            )
             min_reward: float = min(interval_completed_rewards)
             max_reward: float = max(interval_completed_rewards)
 
@@ -252,19 +264,25 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
             last_10_rewards_avgs = np.mean(avg_rewards_list[-10:])
 
             # Print interval summary
-            print(f"\n--- Update Summary ---")
+            print("\n--- Update Summary ---")
             print(f"Episodes in interval: {len(interval_completed_rewards)}")
-            print(f"Avg reward: \033[1m{avg_reward:.2f}\033[0m | Min: \033[2m{min_reward:.2f}\033[0m | Max: \033[2m{max_reward:.2f}\033[0m | Best: {best_reward:.2f}")
-            print(f"Last 5 avg: \033[1m{last_5_rewards_avgs:.2f}\033[0m | Last 10 avg: \033[1m{last_10_rewards_avgs:.2f}\033[0m")
-            print(f"----------------------")
+            print(
+                f"Avg reward: \033[1m{avg_reward:.2f}\033[0m | Min: \033[2m{min_reward:.2f}\033[0m | Max: \033[2m{max_reward:.2f}\033[0m | Best: {best_reward:.2f}"
+            )
+            print(
+                f"Last 5 avg: \033[1m{last_5_rewards_avgs:.2f}\033[0m | Last 10 avg: \033[1m{last_10_rewards_avgs:.2f}\033[0m"
+            )
+            print("----------------------")
 
             # Update progress bar
-            pbar.set_postfix({
-                'avg': f'{avg_reward:.2f}',
-                'min': f'{min_reward:.2f}',
-                'max': f'{max_reward:.2f}',
-                'best': f'{best_reward:.2f}'
-            })
+            pbar.set_postfix(
+                {
+                    "avg": f"{avg_reward:.2f}",
+                    "min": f"{min_reward:.2f}",
+                    "max": f"{max_reward:.2f}",
+                    "best": f"{best_reward:.2f}",
+                }
+            )
 
             # Save best model
             if avg_reward > best_reward:
@@ -283,13 +301,17 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
                 #
                 if avg_reward >= success_threshold:
                     consecutive_successes += 1
-                    print(f"Success! ({consecutive_successes}/{required_successes} consecutive)")
+                    print(
+                        f"Success! ({consecutive_successes}/{required_successes} consecutive)"
+                    )
                 else:
                     consecutive_successes = 0
 
                 # Early stopping check
                 if consecutive_successes >= required_successes:
-                    print(f"\nEarly stopping triggered! {required_successes} consecutive successes achieved.")
+                    print(
+                        f"\nEarly stopping triggered! {required_successes} consecutive successes achieved."
+                    )
                     break
 
     # Close environment
@@ -304,18 +326,22 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
 def main() -> None:
 
     # Parse arguments
-    parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Robot Corridor RL Training")
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        description="Robot Corridor RL Training"
+    )
     #
-    parser.add_argument('--config', type=str, default='config/main.yaml', help='Config file path')
+    parser.add_argument(
+        "--config", type=str, default="config/main.yaml", help="Config file path"
+    )
     #
     args: argparse.Namespace = parser.parse_args()
 
     # Load configuration
-    cfg: Config = load_config(args.config)
+    cfg: GlobalConfig = load_config(args.config)
 
     # Set multiprocessing method
     try:
-        mp.set_start_method('spawn', force=True)
+        mp.set_start_method("spawn", force=True)
     except RuntimeError:
         pass
 

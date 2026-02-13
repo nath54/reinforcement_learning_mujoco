@@ -16,11 +16,8 @@ from src.models.multi_head_encoder import MultiHeadStateEncoder, SingleHeadState
 
 # Factory function for Policy Networks
 def create_policy_network(
-    config: ModelConfig,
-    input_dim: int,
-    output_dim: int
+    config: ModelConfig, input_dim: int, output_dim: int
 ) -> nn.Module:
-
     """
     Create a policy network head (actor output layer).
     """
@@ -37,7 +34,7 @@ def create_policy_network(
             config.n_heads,
             config.n_layers,
             config.embedding_dim,
-            config.dropout
+            config.dropout,
         )
 
     # Unknown model
@@ -46,11 +43,7 @@ def create_policy_network(
 
 
 # Factory function for State Encoders
-def create_state_encoder(
-    config: ModelConfig,
-    state_vector_dim: int
-) -> nn.Module:
-
+def create_state_encoder(config: ModelConfig, state_vector_dim: int) -> nn.Module:
     """
     Create a state encoder based on config.
 
@@ -68,7 +61,7 @@ def create_state_encoder(
             history_length=config.state_history_length,
             include_goal=config.include_goal,
             hidden_dim=config.embedding_dim,
-            output_dim=config.embedding_dim
+            output_dim=config.embedding_dim,
         )
 
     # FT-Transformer
@@ -79,12 +72,11 @@ def create_state_encoder(
             n_heads=config.n_heads,
             n_layers=config.n_layers,
             dropout=config.dropout,
-            output_dim=config.embedding_dim
+            output_dim=config.embedding_dim,
         )
 
     # Temporal MLP
     elif config.type == "temporal_mlp":
-
         # Calculate features per frame (position:3, rotation:3, velocity:2 = 8)
         features_per_frame: int = 8
         goal_dim: int = 4 if config.include_goal else 0
@@ -95,7 +87,7 @@ def create_state_encoder(
             goal_dim=goal_dim,
             action_dim=4,
             hidden_dim=config.embedding_dim,
-            output_dim=config.embedding_dim
+            output_dim=config.embedding_dim,
         )
 
     # Default: single head MLP encoder
@@ -103,5 +95,5 @@ def create_state_encoder(
         return SingleHeadStateEncoder(
             input_dim=state_vector_dim,
             hidden_dim=config.embedding_dim,
-            output_dim=config.embedding_dim
+            output_dim=config.embedding_dim,
         )

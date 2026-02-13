@@ -12,7 +12,6 @@ Or:
     python -m src.main --interactive --config config/main.yaml
 """
 
-
 from typing import Any, cast
 
 import os
@@ -59,11 +58,12 @@ def interactive(config: GlobalConfig, render_mode: bool = False) -> None:
     controls: Controls = Controls(physics, camera, render_mode=render_mode)
 
     # Setup robot tracking with goal position
-    robot_track: TrackRobot = TrackRobot(scene.mujoco_data, goal_position=scene.goal_position)
+    robot_track: TrackRobot = TrackRobot(
+        scene.mujoco_data, goal_position=scene.goal_position
+    )
 
     # Load saved controls if in render mode
     if render_mode:
-
         # Check if saved control file exists
         if not os.path.exists("saved_control.json"):
             raise FileNotFoundError("No saved control file found!")
@@ -88,23 +88,21 @@ def interactive(config: GlobalConfig, render_mode: bool = False) -> None:
 
     # Launch viewer
     with viewer.launch_passive(
-        scene.mujoco_model,
-        scene.mujoco_data,
-        key_callback=controls.key_callback
+        scene.mujoco_model, scene.mujoco_data, key_callback=controls.key_callback
     ) as viewer_instance:
-
         # Initialize camera
         viewer_instance.cam.type = mujoco.mjtCamera.mjCAMERA_FREE
         viewer_instance.cam.azimuth = 1.01171875
         viewer_instance.cam.elevation = -16.6640625
-        viewer_instance.cam.lookat = np.array([1.55633679e-04, -4.88295545e-02, 1.05485916e+00])
+        viewer_instance.cam.lookat = np.array(
+            [1.55633679e-04, -4.88295545e-02, 1.05485916e00]
+        )
 
         # Target time between two frames (dt for delta time)
         target_dt: float = 1.0 / 400.0
 
         # Main loop
         while viewer_instance.is_running() and not controls.quit_requested:
-
             # Get start time
             start_time: float = time.time()
 
@@ -119,7 +117,9 @@ def interactive(config: GlobalConfig, render_mode: bool = False) -> None:
                 # Display camera info
                 print(viewer_instance.cam)
                 # Get the robot id to get its position from mujoco data
-                robot_id: int = mujoco.mj_name2id(scene.mujoco_model, mujoco.mjtObj.mjOBJ_BODY, "robot")
+                robot_id: int = mujoco.mj_name2id(
+                    scene.mujoco_model, mujoco.mjtObj.mjOBJ_BODY, "robot"
+                )
                 # Get the robot position
                 pos: NDArray[np.float64] = scene.mujoco_data.xpos[robot_id]
                 # Print the robot position
@@ -134,7 +134,9 @@ def interactive(config: GlobalConfig, render_mode: bool = False) -> None:
             mujoco.mj_step(scene.mujoco_model, scene.mujoco_data, nstep=1)
 
             # Update the camera
-            camera.update_viewer_camera(viewer_instance.cam, scene.mujoco_model, scene.mujoco_data)
+            camera.update_viewer_camera(
+                viewer_instance.cam, scene.mujoco_model, scene.mujoco_data
+            )
 
             # Sync the viewer
             viewer_instance.sync()
@@ -157,10 +159,16 @@ def interactive(config: GlobalConfig, render_mode: bool = False) -> None:
 def main() -> None:
 
     # Parse arguments
-    parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Robot Corridor RL - Interactive Mode")
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        description="Robot Corridor RL - Interactive Mode"
+    )
     #
-    parser.add_argument('--config', type=str, default='config/main.yaml', help='Config file path')
-    parser.add_argument('--render_mode', action='store_true', help='Replay saved controls')
+    parser.add_argument(
+        "--config", type=str, default="config/main.yaml", help="Config file path"
+    )
+    parser.add_argument(
+        "--render_mode", action="store_true", help="Replay saved controls"
+    )
     #
     args = parser.parse_args()
 

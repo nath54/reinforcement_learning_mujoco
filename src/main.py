@@ -25,24 +25,37 @@ import argparse
 import multiprocessing as mp
 
 
-
 # Parse command line arguments
 def parse_args() -> argparse.Namespace:
     """
     Parse command line arguments.
     """
 
-    parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Robot Corridor RL Training")
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        description="Robot Corridor RL Training"
+    )
 
     #
-    parser.add_argument('--config', type=str, default='config/main.yaml', help='Config file path')
-    parser.add_argument('--train', action='store_true', help='Train the agent')
-    parser.add_argument('--play', action='store_true', help='Play with trained model')
-    parser.add_argument('--interactive', action='store_true', help='Interactive keyboard control')
-    parser.add_argument('--pipeline', type=str, default=None, help='Run training pipeline from yaml')
-    parser.add_argument('--render_mode', action='store_true', help='Replay saved controls')
-    parser.add_argument('--model_path', type=str, default=None, help='Model path for play mode')
-    parser.add_argument('--live_vision', action='store_true', help='Show live vision window')
+    parser.add_argument(
+        "--config", type=str, default="config/main.yaml", help="Config file path"
+    )
+    parser.add_argument("--train", action="store_true", help="Train the agent")
+    parser.add_argument("--play", action="store_true", help="Play with trained model")
+    parser.add_argument(
+        "--interactive", action="store_true", help="Interactive keyboard control"
+    )
+    parser.add_argument(
+        "--pipeline", type=str, default=None, help="Run training pipeline from yaml"
+    )
+    parser.add_argument(
+        "--render_mode", action="store_true", help="Replay saved controls"
+    )
+    parser.add_argument(
+        "--model_path", type=str, default=None, help="Model path for play mode"
+    )
+    parser.add_argument(
+        "--live_vision", action="store_true", help="Show live vision window"
+    )
 
     #
     args: argparse.Namespace = parser.parse_args()
@@ -72,7 +85,7 @@ def main() -> None:
         cfg = load_config(args.config)
         #
         try:
-            mp.set_start_method('spawn', force=True)
+            mp.set_start_method("spawn", force=True)
         except RuntimeError:
             pass
         #

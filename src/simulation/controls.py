@@ -1,8 +1,6 @@
-
-from typing import Any, Optional
+from typing import Any
 
 import json
-import mujoco
 
 from src.simulation.physics import Physics
 from src.simulation.sensors import Camera
@@ -13,13 +11,9 @@ CTRL_SAVE_PATH: str = "saved_control.json"
 
 #
 class Controls:
-
     #
     def __init__(
-        self,
-        physics: Physics,
-        camera: Camera,
-        render_mode: bool = False
+        self, physics: Physics, camera: Camera, render_mode: bool = False
     ) -> None:
 
         # Store parameters
@@ -85,12 +79,7 @@ class Controls:
             self.physics.apply_control(decceleration_factor=0.2)
 
     #
-    def key_callback(
-        self,
-        keycode: int,
-        render_mode: bool = False
-    ) -> None:
-
+    def key_callback(self, keycode: int, render_mode: bool = False) -> None:
         """
         Args:
             keycode: Keycode
@@ -106,13 +95,13 @@ class Controls:
                 self.controls_history[str(self.current_frame)].append(keycode)
 
             # Commands
-            if keycode == ord('c') or keycode == ord('C'):
+            if keycode == ord("c") or keycode == ord("C"):
                 self.display_camera_info = True
-            elif keycode == ord('s') or keycode == ord('S'):
+            elif keycode == ord("s") or keycode == ord("S"):
                 with open(CTRL_SAVE_PATH, "w", encoding="utf-8") as f:
                     json.dump(self.controls_history, f)
                 print(f"Saved control history at path : `{CTRL_SAVE_PATH}` !")
-            elif keycode == ord('q') or keycode == ord('Q') or keycode == 256: # ESC
+            elif keycode == ord("q") or keycode == ord("Q") or keycode == 256:  # ESC
                 self.quit_requested = True
 
         # If render mode, do not apply controls
@@ -120,11 +109,11 @@ class Controls:
             return
 
         # Camera Modes
-        if keycode == ord('1'):
+        if keycode == ord("1"):
             self.camera.set_mode("free")
-        elif keycode == ord('2'):
+        elif keycode == ord("2"):
             self.camera.set_mode("follow_robot")
-        elif keycode == ord('3'):
+        elif keycode == ord("3"):
             self.camera.set_mode("top_down")
         else:
             # Input handling

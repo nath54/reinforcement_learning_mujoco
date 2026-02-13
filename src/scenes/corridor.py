@@ -5,20 +5,16 @@ This module is responsible for procedurally generating the MuJoCo XML scene,
 including the corridor, walls, and obstacles.
 """
 
-
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import random
-import mujoco
 import xml.etree.ElementTree as ET
 
 from math import floor, sin, pi
 
-from src.core.types import Vec3, Point2d, Rect2d, ValType, GlobalConfig
-from src.simulation.robot import Robot
+from src.core.types import Vec3, Point2d, Rect2d, ValType
 
 from .utils_geom import create_geom
-
 
 
 # Corridor generator class
@@ -35,9 +31,8 @@ class Corridor:
         obstacles_mode: str = "none",
         obstacles_mode_param: Optional[dict[str, Any]] = None,
         corridor_shift_x: float = -3.0,
-        ground_friction: str = "1 0.005 0.0001"
+        ground_friction: str = "1 0.005 0.0001",
     ) -> dict[str, Any]:
-
         """
         Generate corridor with walls and obstacles.
         """
@@ -45,14 +40,18 @@ class Corridor:
         # Initialize lists
         components_body: list[ET.Element] = []
         environment_rects: list[Rect2d] = []
-        obstacles_mode_param_: dict[str, Any] = obstacles_mode_param if obstacles_mode_param else {}
+        obstacles_mode_param_: dict[str, Any] = (
+            obstacles_mode_param if obstacles_mode_param else {}
+        )
 
         # Ground
         components_body.append(
             create_geom(
-                "global_floor", "plane", Vec3(0, 0, 0),
+                "global_floor",
+                "plane",
+                Vec3(0, 0, 0),
                 Vec3(corridor_length * 10, corridor_length * 10, 1.0),
-                extra_attribs={"friction": ground_friction}
+                extra_attribs={"friction": ground_friction},
             )
         )
 
@@ -62,13 +61,15 @@ class Corridor:
 
         # Wall 1 (Negative Y)
         w1_pos: Vec3 = Vec3(corridor_length, -corridor_width, wall_height)
-        w1_size: Vec3 = Vec3(corridor_length - corridor_shift_x, wall_width, wall_height)
+        w1_size: Vec3 = Vec3(
+            corridor_length - corridor_shift_x, wall_width, wall_height
+        )
         components_body.append(create_geom("wall_1", "box", w1_pos, w1_size))
         environment_rects.append(
             Rect2d(
                 Point2d(w1_pos.x - w1_size.x, w1_pos.y - w1_size.y),
                 Point2d(w1_pos.x + w1_size.x, w1_pos.y + w1_size.y),
-                wall_height * 2
+                wall_height * 2,
             )
         )
 
@@ -79,7 +80,7 @@ class Corridor:
             Rect2d(
                 Point2d(w2_pos.x - w1_size.x, w2_pos.y - w1_size.y),
                 Point2d(w2_pos.x + w1_size.x, w2_pos.y + w1_size.y),
-                wall_height * 2
+                wall_height * 2,
             )
         )
 
@@ -91,7 +92,7 @@ class Corridor:
             Rect2d(
                 Point2d(w3_pos.x - w3_size.x, w3_pos.y - w3_size.y),
                 Point2d(w3_pos.x + w3_size.x, w3_pos.y + w3_size.y),
-                wall_height * 2
+                wall_height * 2,
             )
         )
 
@@ -102,7 +103,7 @@ class Corridor:
             Rect2d(
                 Point2d(w4_pos.x - w3_size.x, w4_pos.y - w3_size.y),
                 Point2d(w4_pos.x + w3_size.x, w4_pos.y + w3_size.y),
-                wall_height * 2
+                wall_height * 2,
             )
         )
 
@@ -110,9 +111,15 @@ class Corridor:
         if obstacles_mode == "sinusoidal":
             #
             obs_sep: ValType = ValType(obstacles_mode_param_.get("obstacle_sep", 5.0))
-            obs_sz_x: ValType = ValType(obstacles_mode_param_.get("obstacle_size_x", 0.4))
-            obs_sz_y: ValType = ValType(obstacles_mode_param_.get("obstacle_size_y", 0.4))
-            obs_sz_z: ValType = ValType(obstacles_mode_param_.get("obstacle_size_z", 0.5))
+            obs_sz_x: ValType = ValType(
+                obstacles_mode_param_.get("obstacle_size_x", 0.4)
+            )
+            obs_sz_y: ValType = ValType(
+                obstacles_mode_param_.get("obstacle_size_y", 0.4)
+            )
+            obs_sz_z: ValType = ValType(
+                obstacles_mode_param_.get("obstacle_size_z", 0.5)
+            )
 
             current_x: float = 2.0 + obs_sep.get_value()
             obs_len_approx: float = obs_sz_x.get_max_value() + obs_sep.get_max_value()
@@ -128,12 +135,14 @@ class Corridor:
                 y_pos: float = sin(i * 0.16 * pi) * (corridor_width - 2 * sy)
                 pos: Vec3 = Vec3(current_x, y_pos, 0)
                 #
-                components_body.append(create_geom(f"obstacle_{i}", "box", pos, Vec3(sx, sy, sz)))
+                components_body.append(
+                    create_geom(f"obstacle_{i}", "box", pos, Vec3(sx, sy, sz))
+                )
                 environment_rects.append(
                     Rect2d(
                         Point2d(current_x - sx, y_pos - sy),
                         Point2d(current_x + sx, y_pos + sy),
-                        sz * 2
+                        sz * 2,
                     )
                 )
                 current_x += sx + obs_sep.get_max_value()
@@ -159,17 +168,31 @@ class Corridor:
                 # First wave
                 y_pos1: float = sin(i * 0.16 * pi) * (corridor_width - 2 * sy) * 0.5
                 pos1: Vec3 = Vec3(current_x, y_pos1, 0)
-                components_body.append(create_geom(f"obstacle_{i}_a", "box", pos1, Vec3(sx, sy, sz)))
+                components_body.append(
+                    create_geom(f"obstacle_{i}_a", "box", pos1, Vec3(sx, sy, sz))
+                )
                 environment_rects.append(
-                    Rect2d(Point2d(current_x - sx, y_pos1 - sy), Point2d(current_x + sx, y_pos1 + sy), sz * 2)
+                    Rect2d(
+                        Point2d(current_x - sx, y_pos1 - sy),
+                        Point2d(current_x + sx, y_pos1 + sy),
+                        sz * 2,
+                    )
                 )
 
                 # Second wave (offset)
-                y_pos2: float = -sin(i * 0.16 * pi + pi/2) * (corridor_width - 2 * sy) * 0.5
+                y_pos2: float = (
+                    -sin(i * 0.16 * pi + pi / 2) * (corridor_width - 2 * sy) * 0.5
+                )
                 pos2: Vec3 = Vec3(current_x + sx, y_pos2, 0)
-                components_body.append(create_geom(f"obstacle_{i}_b", "box", pos2, Vec3(sx, sy, sz)))
+                components_body.append(
+                    create_geom(f"obstacle_{i}_b", "box", pos2, Vec3(sx, sy, sz))
+                )
                 environment_rects.append(
-                    Rect2d(Point2d(current_x + sx - sx, y_pos2 - sy), Point2d(current_x + sx + sx, y_pos2 + sy), sz * 2)
+                    Rect2d(
+                        Point2d(current_x + sx - sx, y_pos2 - sy),
+                        Point2d(current_x + sx + sx, y_pos2 + sy),
+                        sz * 2,
+                    )
                 )
 
                 current_x += 2 * sx + obs_sep.get_max_value()
@@ -192,17 +215,25 @@ class Corridor:
                 sy = obs_sz_y.get_value()
                 sz = obs_sz_z.get_value()
                 #
-                y_pos: float = random.uniform(-(corridor_width - 2 * sy), corridor_width - 2 * sy)
+                y_pos: float = random.uniform(
+                    -(corridor_width - 2 * sy), corridor_width - 2 * sy
+                )
                 pos = Vec3(current_x, y_pos, 0)
                 #
-                components_body.append(create_geom(f"obstacle_{i}", "box", pos, Vec3(sx, sy, sz)))
+                components_body.append(
+                    create_geom(f"obstacle_{i}", "box", pos, Vec3(sx, sy, sz))
+                )
                 environment_rects.append(
-                    Rect2d(Point2d(current_x - sx, y_pos - sy), Point2d(current_x + sx, y_pos + sy), sz * 2)
+                    Rect2d(
+                        Point2d(current_x - sx, y_pos - sy),
+                        Point2d(current_x + sx, y_pos + sy),
+                        sz * 2,
+                    )
                 )
                 current_x += sx + obs_sep.get_max_value()
 
-        return {'body': components_body, 'environment_rects': environment_rects, 'asset': None}
-
-
-
-
+        return {
+            "body": components_body,
+            "environment_rects": environment_rects,
+            "asset": None,
+        }

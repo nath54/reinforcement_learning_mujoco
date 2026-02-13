@@ -21,7 +21,7 @@ class PolicyTransformer(nn.Module):
         n_heads: int,
         n_layers: int,
         embedding_dim: int,
-        dropout: float
+        dropout: float,
     ) -> None:
 
         # Initialize parent
@@ -32,10 +32,7 @@ class PolicyTransformer(nn.Module):
 
         #
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=embedding_dim,
-            nhead=n_heads,
-            dropout=dropout,
-            batch_first=True
+            d_model=embedding_dim, nhead=n_heads, dropout=dropout, batch_first=True
         )
 
         #

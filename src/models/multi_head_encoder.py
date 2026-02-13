@@ -27,7 +27,7 @@ class MultiHeadStateEncoder(nn.Module):
         history_length: int = 1,
         include_goal: bool = True,
         hidden_dim: int = 64,
-        output_dim: int = 64
+        output_dim: int = 64,
     ) -> None:
 
         # Initialize parent
@@ -48,43 +48,42 @@ class MultiHeadStateEncoder(nn.Module):
         self.pos_encoder = nn.Sequential(
             nn.Linear(self.pos_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim // 2)
+            nn.Linear(hidden_dim, hidden_dim // 2),
         )
 
         self.rot_encoder = nn.Sequential(
             nn.Linear(self.rot_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim // 2)
+            nn.Linear(hidden_dim, hidden_dim // 2),
         )
 
         self.vel_encoder = nn.Sequential(
             nn.Linear(self.vel_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim // 2)
+            nn.Linear(hidden_dim, hidden_dim // 2),
         )
 
         self.action_encoder = nn.Sequential(
             nn.Linear(self.action_dim, hidden_dim // 2),
             nn.ReLU(),
-            nn.Linear(hidden_dim // 2, hidden_dim // 4)
+            nn.Linear(hidden_dim // 2, hidden_dim // 4),
         )
 
         if include_goal:
             self.goal_encoder = nn.Sequential(
                 nn.Linear(self.goal_dim, hidden_dim),
                 nn.ReLU(),
-                nn.Linear(hidden_dim, hidden_dim // 2)
+                nn.Linear(hidden_dim, hidden_dim // 2),
             )
 
         # Fusion layer
-        fusion_input_dim: int = (hidden_dim // 2) * 3 + hidden_dim // 4  # pos, rot, vel, action
+        fusion_input_dim: int = (
+            hidden_dim // 2
+        ) * 3 + hidden_dim // 4  # pos, rot, vel, action
         if include_goal:
             fusion_input_dim += hidden_dim // 2
 
-        self.fusion = nn.Sequential(
-            nn.Linear(fusion_input_dim, output_dim),
-            nn.ReLU()
-        )
+        self.fusion = nn.Sequential(nn.Linear(fusion_input_dim, output_dim), nn.ReLU())
 
         # Store output dimension
         self.output_dim: int = output_dim
@@ -95,7 +94,9 @@ class MultiHeadStateEncoder(nn.Module):
         Total input dimension expected
         """
 
-        return self.pos_dim + self.rot_dim + self.vel_dim + self.goal_dim + self.action_dim
+        return (
+            self.pos_dim + self.rot_dim + self.vel_dim + self.goal_dim + self.action_dim
+        )
 
     #
     def forward(self, state: torch.Tensor) -> torch.Tensor:
@@ -109,24 +110,24 @@ class MultiHeadStateEncoder(nn.Module):
 
         # Split state into modalities
         idx: int = 0
-        pos: torch.Tensor = state[:, idx:idx + self.pos_dim]
+        pos: torch.Tensor = state[:, idx : idx + self.pos_dim]
         idx += self.pos_dim
 
-        rot: torch.Tensor = state[:, idx:idx + self.rot_dim]
+        rot: torch.Tensor = state[:, idx : idx + self.rot_dim]
         idx += self.rot_dim
 
-        vel: torch.Tensor = state[:, idx:idx + self.vel_dim]
+        vel: torch.Tensor = state[:, idx : idx + self.vel_dim]
         idx += self.vel_dim
 
         # Goal
         goal: torch.Tensor
         #
         if self.include_goal:
-            goal = state[:, idx:idx + self.goal_dim]
+            goal = state[:, idx : idx + self.goal_dim]
             idx += self.goal_dim
 
         # Action
-        action: torch.Tensor = state[:, idx:idx + self.action_dim]
+        action: torch.Tensor = state[:, idx : idx + self.action_dim]
 
         # Encode each modality
         pos_feat: torch.Tensor = self.pos_encoder(pos)
@@ -140,7 +141,9 @@ class MultiHeadStateEncoder(nn.Module):
         #
         if self.include_goal:
             goal_feat: torch.Tensor = self.goal_encoder(goal)
-            fused = torch.cat([pos_feat, rot_feat, vel_feat, goal_feat, action_feat], dim=1)
+            fused = torch.cat(
+                [pos_feat, rot_feat, vel_feat, goal_feat, action_feat], dim=1
+            )
         else:
             fused = torch.cat([pos_feat, rot_feat, vel_feat, action_feat], dim=1)
 
@@ -154,10 +157,7 @@ class SingleHeadStateEncoder(nn.Module):
     """
 
     def __init__(
-        self,
-        input_dim: int,
-        hidden_dim: int = 64,
-        output_dim: int = 64
+        self, input_dim: int, hidden_dim: int = 64, output_dim: int = 64
     ) -> None:
 
         # Initialize parent
@@ -169,7 +169,7 @@ class SingleHeadStateEncoder(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim)
+            nn.Linear(hidden_dim, output_dim),
         )
         self.output_dim: int = output_dim
 

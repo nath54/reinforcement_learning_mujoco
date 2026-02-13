@@ -19,6 +19,7 @@ class Vec3:
     y: float
     z: float
 
+
 @dataclass
 class Point2d:
     x: float
@@ -26,6 +27,7 @@ class Point2d:
 
     def dist(self, p: "Point2d") -> float:
         return ((p.x - self.x) ** 2 + (p.y - self.y) ** 2) ** 0.5
+
 
 @dataclass
 class Rect2d:
@@ -44,43 +46,50 @@ class Rect2d:
     def point_inside(self, p: Point2d) -> bool:
         """Check if point is inside rectangle"""
         return (
-            p.x >= self.corner_top_left.x and
-            p.x <= self.corner_bottom_right.x and
-            p.y >= self.corner_top_left.y and
-            p.y <= self.corner_bottom_right.y
+            p.x >= self.corner_top_left.x
+            and p.x <= self.corner_bottom_right.x
+            and p.y >= self.corner_top_left.y
+            and p.y <= self.corner_bottom_right.y
         )
 
     def rect_collision(self, r: "Rect2d") -> bool:
         """Check if two rectangles collide"""
         return (
-            self.point_inside(r.corner_top_left) or
-            self.point_inside(r.corner_top_right) or
-            self.point_inside(r.corner_bottom_left) or
-            self.point_inside(r.corner_bottom_right)
+            self.point_inside(r.corner_top_left)
+            or self.point_inside(r.corner_top_right)
+            or self.point_inside(r.corner_bottom_left)
+            or self.point_inside(r.corner_bottom_right)
         ) or (
-            r.point_inside(self.corner_top_left) or
-            r.point_inside(self.corner_top_right) or
-            r.point_inside(self.corner_bottom_left) or
-            r.point_inside(self.corner_bottom_right)
+            r.point_inside(self.corner_top_left)
+            or r.point_inside(self.corner_top_right)
+            or r.point_inside(self.corner_bottom_left)
+            or r.point_inside(self.corner_bottom_right)
         )
+
 
 @dataclass
 class ValType:
     """Represents either a fixed value or a random range"""
+
     value: float | tuple[float, float]
 
     def get_value(self) -> float:
-        return random.uniform(*self.value) if isinstance(self.value, tuple) else self.value
+        return (
+            random.uniform(*self.value) if isinstance(self.value, tuple) else self.value
+        )
 
     def get_max_value(self) -> float:
         return max(*self.value) if isinstance(self.value, tuple) else self.value
+
 
 @dataclass
 class ModelInput:
     vision: NDArray[np.float64]
     state_vector: NDArray[np.float64]
 
+
 # --- Config Dataclasses ---
+
 
 @dataclass
 class SimulationConfig:
@@ -89,8 +98,12 @@ class SimulationConfig:
     robot_view_range: float = 4.0
     max_steps: int = 30000
     env_precision: float = 0.2
-    vision_position_offset: float = 0.0  # Offset added to robot position when generating vision (meters)
-    vision_encoding_mode: str = "binary"  # Vision encoding: "binary", "binary_with_robot", "symlog"
+    vision_position_offset: float = (
+        0.0  # Offset added to robot position when generating vision (meters)
+    )
+    vision_encoding_mode: str = (
+        "binary"  # Vision encoding: "binary", "binary_with_robot", "symlog"
+    )
     warmup_steps: int = 1000
     action_repeat: int = 10
     num_envs: int = 6
@@ -101,16 +114,21 @@ class SimulationConfig:
     scene_type: str = "corridor"
 
     # Goal settings (used for flat_world, ignored for corridor)
-    goal_position: Optional[tuple[float, float, float]] = None  # (x, y, z) or None for auto
+    goal_position: Optional[tuple[float, float, float]] = (
+        None  # (x, y, z) or None for auto
+    )
     goal_radius: float = 3.0  # Success radius to reach goal
-    randomize_goal: bool = False  # Randomize goal on each reset (auto-enabled for flat_world)
+    randomize_goal: bool = (
+        False  # Randomize goal on each reset (auto-enabled for flat_world)
+    )
 
     # Physics settings (defaults match original script logic)
-    gravity: str = "0 0 -0.20"     # Original low gravity
-    dt: float = 0.01               # Timestep
-    solver: str = "Newton"         # Physics solver
-    iterations: int = 500          # Solver iterations
-    ground_friction: str = "1 0.005 0.0001" # Sliding, Torsional, Rolling friction
+    gravity: str = "0 0 -0.20"  # Original low gravity
+    dt: float = 0.01  # Timestep
+    solver: str = "Newton"  # Physics solver
+    iterations: int = 500  # Solver iterations
+    ground_friction: str = "1 0.005 0.0001"  # Sliding, Torsional, Rolling friction
+
 
 @dataclass
 class RobotConfig:
@@ -118,6 +136,7 @@ class RobotConfig:
     action_smoothing_k: int = 5
     control_mode: str = "discrete_direction"
     max_speed: float = 10.0
+
 
 @dataclass
 class RewardConfig:
@@ -134,6 +153,7 @@ class RewardConfig:
     backward_escape_bonus: float = 0.02
     use_true_velocity: bool = False  # If True, use actual velocity instead of position
     forward_progress_scale: float = 0.0  # Bonus for forward position change (delta X)
+
 
 @dataclass
 class TrainingConfig:
@@ -156,6 +176,7 @@ class TrainingConfig:
     early_stopping_consecutive_successes: int = 50
     early_stopping_success_threshold: float = 90.0  # Reward > this = success
 
+
 @dataclass
 class ModelConfig:
     type: str = "mlp"  # "mlp", "temporal_mlp", "ft_transformer"
@@ -176,6 +197,7 @@ class ModelConfig:
     actor_hidden_gain: float = 1.414
     actor_output_gain: float = 0.01
     control_mode: str = "discrete_direction"
+
 
 @dataclass
 class GlobalConfig:

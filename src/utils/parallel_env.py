@@ -13,8 +13,11 @@ from multiprocessing.connection import Connection
 import numpy as np
 from numpy.typing import NDArray
 
+
 #
-def worker(remote: Connection, parent_remote: Connection, env_fn_wrapper: Callable[[], Any]) -> None:
+def worker(
+    remote: Connection, parent_remote: Connection, env_fn_wrapper: Callable[[], Any]
+) -> None:
     """
     Worker process for parallel environment
     """
@@ -36,10 +39,8 @@ def worker(remote: Connection, parent_remote: Connection, env_fn_wrapper: Callab
 
     # Main loop for receiving commands
     while True:
-
         #
         try:
-
             # Receive command
             #
             cmd: str
@@ -56,8 +57,7 @@ def worker(remote: Connection, parent_remote: Connection, env_fn_wrapper: Callab
             info: dict[str, Any]
 
             # Step command
-            if cmd == 'step':
-
+            if cmd == "step":
                 # Take step in environment
                 ob, reward, terminated, truncated, info = env.step(data)
 
@@ -74,8 +74,7 @@ def worker(remote: Connection, parent_remote: Connection, env_fn_wrapper: Callab
                 remote.send((ob, reward, terminated, truncated, info))
 
             # Reset command
-            elif cmd == 'reset':
-
+            elif cmd == "reset":
                 # Reset environment
                 res = env.reset()
                 if isinstance(res, tuple):
@@ -84,13 +83,11 @@ def worker(remote: Connection, parent_remote: Connection, env_fn_wrapper: Callab
                     ob = res
                     info = {}
 
-
                 # Send result to parent
                 remote.send(ob)
 
             # Close command
-            elif cmd == 'close':
-
+            elif cmd == "close":
                 # Close remote
                 remote.close()
 
@@ -98,8 +95,7 @@ def worker(remote: Connection, parent_remote: Connection, env_fn_wrapper: Callab
                 break
 
             # Get spaces command
-            elif cmd == 'get_spaces':
-
+            elif cmd == "get_spaces":
                 # Send spaces to parent
                 remote.send((env.observation_space, env.action_space))
 
@@ -109,7 +105,6 @@ def worker(remote: Connection, parent_remote: Connection, env_fn_wrapper: Callab
 
         #
         except Exception as e:
-
             #
             print(f"Worker error: {e}")
             #
@@ -149,7 +144,9 @@ class SubprocVecEnv:
         # Create worker processes
         self.ps: list[Process] = [
             Process(target=worker, args=(work_remote, remote, env_fn))
-            for (work_remote, remote, env_fn) in zip(self.work_remotes, self.remotes, env_fns)
+            for (work_remote, remote, env_fn) in zip(
+                self.work_remotes, self.remotes, env_fns
+            )
         ]
 
         # Start worker processes
@@ -173,19 +170,29 @@ class SubprocVecEnv:
         action: Any
         #
         for remote, action in zip(self.remotes, actions):
-            remote.send(('step', action))
+            remote.send(("step", action))
 
         # Set waiting flag
         self.waiting = True
 
     #
-    def step_wait(self) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.bool_], NDArray[np.bool_], tuple[dict[str, Any], ...]]:
+    def step_wait(
+        self,
+    ) -> tuple[
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.bool_],
+        NDArray[np.bool_],
+        tuple[dict[str, Any], ...],
+    ]:
         """
         Wait for the results from the worker processes
         """
 
         # Receive results from each environment
-        results: list[tuple[NDArray[np.float64], float, bool, bool, dict[str, Any]]] = [remote.recv() for remote in self.remotes]
+        results: list[tuple[NDArray[np.float64], float, bool, bool, dict[str, Any]]] = [
+            remote.recv() for remote in self.remotes
+        ]
 
         # Set waiting flag
         self.waiting = False
@@ -197,7 +204,15 @@ class SubprocVecEnv:
         return np.stack(obs), np.stack(rews), np.stack(terms), np.stack(truncs), infos
 
     #
-    def step(self, actions: NDArray[Any] | list[Any]) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.bool_], NDArray[np.bool_], tuple[dict[str, Any], ...]]:
+    def step(
+        self, actions: NDArray[Any] | list[Any]
+    ) -> tuple[
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.bool_],
+        NDArray[np.bool_],
+        tuple[dict[str, Any], ...],
+    ]:
         """
         Step the environment with the given actions
         """
@@ -216,7 +231,7 @@ class SubprocVecEnv:
 
         # Send reset command to each environment
         for remote in self.remotes:
-            remote.send(('reset', None))
+            remote.send(("reset", None))
 
         # Receive results from each environment
         return np.stack([remote.recv() for remote in self.remotes])
@@ -238,7 +253,7 @@ class SubprocVecEnv:
 
         # Send close command to each environment
         for remote in self.remotes:
-            remote.send(('close', None))
+            remote.send(("close", None))
 
         # Wait for processes to finish
         for p in self.ps:

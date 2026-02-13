@@ -27,7 +27,7 @@ class TemporalMLP(nn.Module):
         goal_dim: int = 0,
         action_dim: int = 4,
         hidden_dim: int = 64,
-        output_dim: int = 64
+        output_dim: int = 64,
     ) -> None:
 
         # Initialize parent
@@ -42,9 +42,16 @@ class TemporalMLP(nn.Module):
         # 1D conv over time dimension
         # Input: (batch, features_per_frame, history_length)
         self.temporal_conv = nn.Sequential(
-            nn.Conv1d(features_per_frame, hidden_dim, kernel_size=min(3, history_length), padding=1),
+            nn.Conv1d(
+                features_per_frame,
+                hidden_dim,
+                kernel_size=min(3, history_length),
+                padding=1,
+            ),
             nn.ReLU(),
-            nn.Conv1d(hidden_dim, hidden_dim, kernel_size=min(3, history_length), padding=1),
+            nn.Conv1d(
+                hidden_dim, hidden_dim, kernel_size=min(3, history_length), padding=1
+            ),
             nn.ReLU(),
         )
 
@@ -57,15 +64,13 @@ class TemporalMLP(nn.Module):
 
         if goal_dim > 0:
             self.goal_encoder = nn.Sequential(
-                nn.Linear(goal_dim, hidden_dim // 2),
-                nn.ReLU()
+                nn.Linear(goal_dim, hidden_dim // 2), nn.ReLU()
             )
             extra_dim += hidden_dim // 2
 
         if action_dim > 0:
             self.action_encoder = nn.Sequential(
-                nn.Linear(action_dim, hidden_dim // 4),
-                nn.ReLU()
+                nn.Linear(action_dim, hidden_dim // 4), nn.ReLU()
             )
             extra_dim += hidden_dim // 4
 
@@ -73,7 +78,7 @@ class TemporalMLP(nn.Module):
         self.final_mlp = nn.Sequential(
             nn.Linear(hidden_dim + extra_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim)
+            nn.Linear(hidden_dim, output_dim),
         )
 
         self.output_dim: int = output_dim
@@ -103,17 +108,21 @@ class TemporalMLP(nn.Module):
         goal: torch.Tensor
         #
         if self.goal_dim > 0:
-            goal = state[:, idx:idx + self.goal_dim]
+            goal = state[:, idx : idx + self.goal_dim]
             idx += self.goal_dim
 
-        action: torch.Tensor = state[:, idx:idx + self.action_dim]
+        action: torch.Tensor = state[:, idx : idx + self.action_dim]
 
         # Reshape history for conv: (batch, features, time)
-        history: torch.Tensor = history_flat.view(batch_size, self.history_length, self.features_per_frame)
+        history: torch.Tensor = history_flat.view(
+            batch_size, self.history_length, self.features_per_frame
+        )
         history = history.permute(0, 2, 1)  # (batch, features, time)
 
         # Apply temporal conv
-        temporal_features: torch.Tensor = self.temporal_conv(history)  # (batch, hidden, time)
+        temporal_features: torch.Tensor = self.temporal_conv(
+            history
+        )  # (batch, hidden, time)
         temporal_features = self.pool(temporal_features).squeeze(-1)  # (batch, hidden)
 
         # Encode goal and action

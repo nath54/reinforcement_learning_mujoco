@@ -18,9 +18,7 @@ class TrackRobot:
 
     #
     def __init__(
-        self,
-        mujoco_data_scene: mujoco.MjData,
-        goal_position: Vec3 | None = None
+        self, mujoco_data_scene: mujoco.MjData, goal_position: Vec3 | None = None
     ) -> None:
 
         # mjdata is the physics state of the simulation from mujoco
@@ -72,8 +70,8 @@ class TrackRobot:
         # Record distance to goal
         if self.goal_position is not None:
             dist: float = np.sqrt(
-                (self.mjdata.qpos[0] - self.goal_position.x)**2 +
-                (self.mjdata.qpos[1] - self.goal_position.y)**2
+                (self.mjdata.qpos[0] - self.goal_position.x) ** 2
+                + (self.mjdata.qpos[1] - self.goal_position.y) ** 2
             )
             self.distance_to_goal_track.append(dist)
 
@@ -132,8 +130,10 @@ class TrackRobot:
         # Plot distance to goal if available
         if has_goal:
             plt.subplot(n_subplots, 1, 3)
-            plt.plot(time_range, self.distance_to_goal_track, label="distance", color="red")
-            plt.axhline(y=0, color='green', linestyle='--', label="goal")
+            plt.plot(
+                time_range, self.distance_to_goal_track, label="distance", color="red"
+            )
+            plt.axhline(y=0, color="green", linestyle="--", label="goal")
             plt.legend()
             plt.title("Distance to Goal")
             plt.ylabel("Distance (m)")

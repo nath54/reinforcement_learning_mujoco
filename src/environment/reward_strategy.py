@@ -5,7 +5,6 @@ This module implements reward strategies for goal-based navigation.
 The primary reward is based on distance reduction toward the goal.
 """
 
-
 import numpy as np
 from numpy.typing import NDArray
 
@@ -31,7 +30,9 @@ class GoalDistanceReward(RewardStrategyProtocol):
         self.initial_distance: float = 0.0  # Distance at episode start
 
     #
-    def reset(self, goal_position: Vec3 | None = None, robot_position: Vec3 | None = None) -> None:
+    def reset(
+        self, goal_position: Vec3 | None = None, robot_position: Vec3 | None = None
+    ) -> None:
         """
         Reset state for new episode.
 
@@ -43,8 +44,8 @@ class GoalDistanceReward(RewardStrategyProtocol):
         # Calculate initial distance if both positions are provided
         if goal_position is not None and robot_position is not None:
             self.initial_distance = np.sqrt(
-                (goal_position.x - robot_position.x)**2 +
-                (goal_position.y - robot_position.y)**2
+                (goal_position.x - robot_position.x) ** 2
+                + (goal_position.y - robot_position.y) ** 2
             )
         else:
             self.initial_distance = 100.0  # Default fallback
@@ -60,9 +61,8 @@ class GoalDistanceReward(RewardStrategyProtocol):
         action: NDArray[np.float64],
         step_count: int,
         is_stuck: bool,
-        is_backward: bool
+        is_backward: bool,
     ) -> float:
-
         """
         Compute reward based on distance reduction toward goal.
 
@@ -80,16 +80,16 @@ class GoalDistanceReward(RewardStrategyProtocol):
 
         # Calculate current distance to goal
         current_distance: float = np.sqrt(
-            (goal_position.x - pos.x)**2 + (goal_position.y - pos.y)**2
+            (goal_position.x - pos.x) ** 2 + (goal_position.y - pos.y) ** 2
         )
 
         # Distance reduction reward (positive when getting closer)
         distance_delta: float = self.prev_distance - current_distance
-        velocity_reward_scale: float = getattr(self.cfg, 'velocity_reward_scale', 1.0)
+        velocity_reward_scale: float = getattr(self.cfg, "velocity_reward_scale", 1.0)
         reward += distance_delta * velocity_reward_scale
 
         # Optional: forward progress bonus (scaled distance improvement)
-        forward_progress_scale: float = getattr(self.cfg, 'forward_progress_scale', 0.0)
+        forward_progress_scale: float = getattr(self.cfg, "forward_progress_scale", 0.0)
         if forward_progress_scale > 0.0:
             reward += distance_delta * forward_progress_scale
 

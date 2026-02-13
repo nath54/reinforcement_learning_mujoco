@@ -9,19 +9,16 @@ import mujoco
 import numpy as np
 from numpy.typing import NDArray
 
-from src.core.types import Vec3
-
 
 #
 class Physics:
-
     #
     def __init__(
         self,
         model: mujoco.MjModel,
         data: mujoco.MjData,
         air_drag_coefficient: float = 0.5,
-        robot_deceleration_force: float = 0.01
+        robot_deceleration_force: float = 0.01,
     ) -> None:
 
         #
@@ -71,7 +68,7 @@ class Physics:
                 torque=np.zeros(3),
                 point=self.data_scene.xpos[i],
                 body=i,
-                qfrc_target=qfrc_target
+                qfrc_target=qfrc_target,
             )
 
     #
@@ -111,7 +108,6 @@ class Physics:
         max_front_wheel_speeds: float = 200.0,
         max_back_wheel_speeds: float = 100.0,
     ) -> None:
-
         """
         Apply control inputs to robot wheels.
         Exact logic from original:
@@ -143,10 +139,14 @@ class Physics:
         # Clamp values
         if abs(acceleration_factor) > 0.00001:
             self.robot_wheels_speed[0:2] = np.clip(
-                self.robot_wheels_speed[0:2], -max_front_wheel_speeds, max_front_wheel_speeds
+                self.robot_wheels_speed[0:2],
+                -max_front_wheel_speeds,
+                max_front_wheel_speeds,
             )
             self.robot_wheels_speed[2:4] = np.clip(
-                self.robot_wheels_speed[2:4], -max_back_wheel_speeds, max_back_wheel_speeds
+                self.robot_wheels_speed[2:4],
+                -max_back_wheel_speeds,
+                max_back_wheel_speeds,
             )
 
         # Apply to MuJoCo
