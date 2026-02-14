@@ -283,6 +283,8 @@ class SimulationEnv(gym.Env):
         total_reward: float = 0.0
         terminated: bool = False
         truncated: bool = False
+        fell: bool = False
+        success: bool = False
 
         # Physics steps
         for _ in range(self.config.simulation.action_repeat):
@@ -337,11 +339,14 @@ class SimulationEnv(gym.Env):
                 )
                 if dist_to_goal < self.config.simulation.goal_radius:
                     terminated = True
+                    success = True
                     step_reward += self.config.rewards.goal
 
             # Termination if robot falls
-            if pos.z < -5.0:
+            if pos.z < self.config.simulation.fall_termination_threshold:
                 terminated = True
+                fell = True
+                step_reward += self.config.rewards.fall_penalty
 
             # Truncation for flat_world only (corridor has walls)
             if self.config.simulation.scene_type == "flat_world":
@@ -354,7 +359,7 @@ class SimulationEnv(gym.Env):
             step_reward *= self.config.training.reward_scale
 
             # Add bonus for termination
-            if terminated:
+            if terminated and not fell:
                 step_reward += 0.5
             if truncated:
                 step_reward -= 0.5
@@ -384,7 +389,11 @@ class SimulationEnv(gym.Env):
             total_reward,
             terminated,
             truncated,
-            {"robot_pos": pos_arr},
+            {
+                "robot_pos": pos_arr,
+                "fell": fell,
+                "success": success,
+            },
         )
 
     #

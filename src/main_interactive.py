@@ -144,6 +144,16 @@ def interactive(config: GlobalConfig, render_mode: bool = False) -> None:
             # Track the robot (includes distance to goal)
             robot_track.track()
 
+            # Detect endless fall and reset
+            robot_id = mujoco.mj_name2id(
+                scene.mujoco_model, mujoco.mjtObj.mjOBJ_BODY, "robot"
+            )
+            if scene.mujoco_data.xpos[robot_id][2] < config.simulation.endless_fall_threshold:
+                print(f"\nEndless fall detected (Z < {config.simulation.endless_fall_threshold}). Resetting simulation...")
+                mujoco.mj_resetData(scene.mujoco_model, scene.mujoco_data)
+                physics.reset()
+                scene.mujoco_data.xpos[robot_id][2] = 0.2 # Warmup lift
+
             # Get elapsed time
             elapsed: float = time.time() - start_time
 
@@ -164,7 +174,7 @@ def main() -> None:
     )
     #
     parser.add_argument(
-        "--config", type=str, default="config/main.yaml", help="Config file path"
+        "--config", type=str, default="config/main_custom_xml.yaml", help="Config file path"
     )
     parser.add_argument(
         "--render_mode", action="store_true", help="Replay saved controls"

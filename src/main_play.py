@@ -613,6 +613,14 @@ def play(config: GlobalConfig, model_path: str, live_vision: bool = False) -> No
                     step_reward = 0.0
                     crt_step = 0
 
+                # Detect endless fall and reset
+                if robot_pos_vec[2] < config.simulation.endless_fall_threshold:
+                    print(f"\nEndless fall detected (Z < {config.simulation.endless_fall_threshold}). Resetting simulation...")
+                    env.reset()
+                    episode_reward = 0.0
+                    step_reward = 0.0
+                    crt_step = 0
+
             # Timing
             time.sleep(1.0 / 400.0)
 
@@ -633,7 +641,7 @@ def main() -> None:
     )
     #
     parser.add_argument(
-        "--config", type=str, default="config/main.yaml", help="Config file path"
+        "--config", type=str, default="config/main_custom_xml.yaml", help="Config file path"
     )
     parser.add_argument(
         "--model_path", type=str, default=None, help="Model path for play mode"

@@ -110,6 +110,10 @@ class SimulationConfig:
     obstacles_mode: str = "sinusoidal"
     obstacles_mode_param: dict[str, Any] = field(default_factory=dict)
 
+    # Fall detection
+    fall_termination_threshold: float = -5.0
+    endless_fall_threshold: float = -30.0
+
     # Scene type: "corridor" or "flat_world"
     scene_type: str = "corridor"
 
@@ -172,6 +176,7 @@ class RewardConfig:
     backward_escape_bonus: float = 0.02
     use_true_velocity: bool = False  # If True, use actual velocity instead of position
     forward_progress_scale: float = 0.0  # Bonus for forward position change (delta X)
+    fall_penalty: float = -50.0
 
 
 @dataclass

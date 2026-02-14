@@ -366,7 +366,7 @@ def main() -> None:
     )
     #
     parser.add_argument(
-        "--config", type=str, default="config/main.yaml", help="Config file path"
+        "--config", type=str, default="config/main_custom_xml.yaml", help="Config file path"
     )
     parser.add_argument(
         "--resume", action="store_true", help="Resume from latest checkpoint"

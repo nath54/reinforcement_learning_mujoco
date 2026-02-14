@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
 
     #
     parser.add_argument(
-        "--config", type=str, default="config/main.yaml", help="Config file path"
+        "--config", type=str, default="config/main_custom_xml.yaml", help="Config file path"
     )
     parser.add_argument("--train", action="store_true", help="Train the agent")
     parser.add_argument("--play", action="store_true", help="Play with trained model")
