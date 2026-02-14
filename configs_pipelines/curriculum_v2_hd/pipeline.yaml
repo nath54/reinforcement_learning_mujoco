@@ -16,7 +16,7 @@ stages:
     max_episodes: 5000
     early_stop_successes: 50
 
-  - name: "Flat Ground with Obstacles"  
+  - name: "Flat Ground with Obstacles"
     config: "stage_02_obstacles.yaml"
     max_episodes: 5000
     early_stop_successes: 100
@@ -33,5 +33,5 @@ stages:
 
   - name: "Corridor Complex"
     config: "stage_05_corridor_complex.yaml"
-    max_episodes: 10000
-    early_stop_successes: 0  # No early stop, train fully
+    max_episodes: 20000
+    early_stop_successes: 100

@@ -38,7 +38,8 @@ def load_pipeline_config(pipeline_path: str) -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
-# Merge stage overrides into base config
+
+# Deep merge stage overrides into base config
 def merge_configs(
     base_config: dict[str, Any], stage_overrides: dict[str, Any]
 ) -> dict[str, Any]:
@@ -65,14 +66,44 @@ def merge_configs(
     return result
 
 
+def is_stage_complete(stage_dir: str, max_episodes: int, early_stop_successes: int) -> bool:
+    """
+    Determine if a stage is complete based on rewards.txt and config.
+    """
+    rewards_file = os.path.join(stage_dir, "rewards.txt")
+    if not os.path.exists(rewards_file):
+        return False
+
+    try:
+        with open(rewards_file, "r") as f:
+            rewards = [float(line.strip()) for line in f if line.strip()]
+
+        # 1. Check max episodes
+        if len(rewards) >= max_episodes:
+            return True
+
+        # 2. Check early stopping
+        if early_stop_successes > 0:
+            #
+            pass
+
+    except Exception:
+        pass
+
+    return False
+
+
 # Execute a training pipeline
-def run_pipeline(pipeline_path: str, output_dir: Optional[str] = None) -> None:
+def run_pipeline(
+    pipeline_path: str, output_dir: Optional[str] = None, resume: bool = False
+) -> None:
     """
     Execute a training pipeline.
 
     Args:
         pipeline_path: Path to pipeline.yaml
         output_dir: Override output directory (default: auto-generated)
+        resume: Whether to resume from an existing pipeline run
     """
 
     # Load pipeline config
@@ -109,10 +140,45 @@ def run_pipeline(pipeline_path: str, output_dir: Optional[str] = None) -> None:
     print(f"TRAINING PIPELINE: {pipeline_name}")
     print(f"Output: {output_dir}")
     print(f"Stages: {len(stages)}")
+    if resume:
+        print("Mode: RESUME")
     print(f"{'=' * 60}\n")
 
     # Initialize weights path to None (for loading from previous stage)
     current_weights_path: Optional[str] = None
+
+    # Determine starting stage if resuming
+    start_stage_idx: int = 0
+    if resume:
+        # Check stages in reverse order to find the furthest progress
+        for stage_idx in range(len(stages) - 1, -1, -1):
+            stage = stages[stage_idx]
+            stage_name = stage.get("name", f"Stage {stage_idx + 1}")
+            stage_output_dir = os.path.join(
+                output_dir, f"stage_{stage_idx + 1:02d}_{stage_name.replace(' ', '_')}"
+            )
+
+            # A stage is counted as "started" if it has a rewards.txt
+            rewards_file = os.path.join(stage_output_dir, "rewards.txt")
+            if not os.path.exists(rewards_file):
+                continue
+
+            # If Stage N has progress, all stages < N are considered complete
+            # If Stage N is complete (max episodes or early stopped), start at N+1
+            # If Stage N is partial, start at N
+
+            max_episodes = stage.get("max_episodes", 10000)
+            early_stop_successes = stage.get("early_stop_successes", 0)
+
+            if is_stage_complete(stage_output_dir, max_episodes, early_stop_successes):
+                start_stage_idx = stage_idx + 1
+                print(f"Resuming at Stage {start_stage_idx + 1} (previous stages complete)")
+                break
+            else:
+                # This is the furthest stage with progress, and it's incomplete.
+                start_stage_idx = stage_idx
+                print(f"Resuming at Stage {start_stage_idx + 1} (in progress)")
+                break
 
     # Iterate over stages
     #
@@ -120,6 +186,17 @@ def run_pipeline(pipeline_path: str, output_dir: Optional[str] = None) -> None:
     stage: dict[str, Any]
     #
     for stage_idx, stage in enumerate(stages):
+        if stage_idx < start_stage_idx:
+            # We still need to find current_weights_path for skipped stages
+            stage_name = stage.get("name", f"Stage {stage_idx + 1}")
+            stage_output_dir = os.path.join(
+                output_dir, f"stage_{stage_idx + 1:02d}_{stage_name.replace(' ', '_')}"
+            )
+            best_model_path = os.path.join(stage_output_dir, "best_model.pth")
+            if os.path.exists(best_model_path):
+                current_weights_path = best_model_path
+            continue
+
         # Get stage info
         stage_name: str = stage.get("name", f"Stage {stage_idx + 1}")
         stage_config_file: str = stage.get("config")
@@ -193,7 +270,13 @@ def run_pipeline(pipeline_path: str, output_dir: Optional[str] = None) -> None:
             # Load config
             config: GlobalConfig = load_config(merged_config_path)
             # Run training
-            train(config, exp_dir_override=stage_output_dir)
+            train(config, exp_dir_override=stage_output_dir, resume=resume)
+
+            # Cleanup: Delete optimizer checkpoint after successful stage completion to save disk space
+            checkpoint_path = os.path.join(stage_output_dir, "optimizer_checkpoint.pth")
+            if os.path.exists(checkpoint_path):
+                print(f"Cleaning up optimizer checkpoint: {checkpoint_path}")
+                os.remove(checkpoint_path)
 
         except KeyboardInterrupt:
             print("\n\nTraining interrupted by user")
@@ -241,6 +324,9 @@ def main():
     parser.add_argument(
         "--output", type=str, default=None, help="Override output directory"
     )
+    parser.add_argument(
+        "--resume", action="store_true", help="Resume from an existing pipeline output"
+    )
     #
     args: argparse.Namespace = parser.parse_args()
 
@@ -250,7 +336,7 @@ def main():
         return
 
     # Run pipeline
-    run_pipeline(args.pipeline, args.output)
+    run_pipeline(args.pipeline, args.output, resume=args.resume)
 
 
 # This script can also be directly run from the command line instead of using src.main

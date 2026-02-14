@@ -37,7 +37,7 @@ model:
 
 rewards:
   type: "velocity"
-  goal: 100.0
+  goal: 1000.0
   use_velocity_reward: true
   use_true_velocity: true
   velocity_reward_scale: 5.0

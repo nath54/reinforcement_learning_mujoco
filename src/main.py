@@ -48,6 +48,9 @@ def parse_args() -> argparse.Namespace:
         "--pipeline", type=str, default=None, help="Run training pipeline from yaml"
     )
     parser.add_argument(
+        "--output", type=str, default=None, help="Override output directory"
+    )
+    parser.add_argument(
         "--render_mode", action="store_true", help="Replay saved controls"
     )
     parser.add_argument(
@@ -61,6 +64,9 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Override robot XML path from config",
+    )
+    parser.add_argument(
+        "--resume", action="store_true", help="Resume training or pipeline"
     )
 
     #
@@ -83,7 +89,7 @@ def main() -> None:
     # Run training pipeline of training runs
     if args.pipeline:
         #
-        run_pipeline(args.pipeline)
+        run_pipeline(args.pipeline, output_dir=args.output, resume=args.resume)
 
     # Run single training run
     elif args.train:
@@ -98,7 +104,7 @@ def main() -> None:
         except RuntimeError:
             pass
         #
-        train(cfg)
+        train(cfg, resume=args.resume)
 
     # Agents play with trained model so we can see what they learned
     elif args.play:

@@ -41,13 +41,18 @@ def make_env(config: GlobalConfig) -> SimulationEnv:
 
 
 # Train the PPO agent with parallel environments
-def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
+def train(
+    config: GlobalConfig,
+    exp_dir_override: Optional[str] = None,
+    resume: bool = False,
+) -> None:
     """
     Train the PPO agent with parallel environments
 
     Args:
         config: Global configuration
         exp_dir_override: Override output directory (for pipeline mode)
+        resume: Whether to resume from an existing experiment
     """
 
     print("Starting training...")
@@ -71,6 +76,7 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
 
     # Paths
     current_model_path: str = os.path.join(exp_dir, "model_latest.pth")
+    checkpoint_path: str = os.path.join(exp_dir, "optimizer_checkpoint.pth")
     best_model_path: str = os.path.join(exp_dir, "best_model.pth")
     training_log_path: str = os.path.join(exp_dir, "rewards.txt")
 
@@ -131,31 +137,57 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
     # Initialize memory
     memory: Memory = Memory()
 
-    # Load weights if specified
-    if config.training.load_weights_from and os.path.exists(
-        config.training.load_weights_from
-    ):
-        #
-        print(f"Loading weights from {config.training.load_weights_from}")
-        #
-        try:
-            #
-            agent.policy.load_state_dict(
-                torch.load(config.training.load_weights_from, map_location=agent.device)
-            )
-            agent.policy_old.load_state_dict(agent.policy.state_dict())
-            #
-            print("Weights loaded successfully")
-        #
-        except Exception as e:
-            #
-            print(f"Error loading weights: {e}")
-
     # Training variables
     episode_rewards: list[float] = [0.0] * num_envs
     episode_steps: list[int] = [0] * num_envs
     i_episode: int = 0
     best_reward: float = -float("inf")
+
+    # Resume logic
+    if resume:
+        # 1. Try to load full optimizer checkpoint
+        if os.path.exists(checkpoint_path):
+            print(f"Resuming from checkpoint: {checkpoint_path}")
+            checkpoint_data = agent.load_checkpoint(checkpoint_path)
+            best_reward = checkpoint_data.get("best_reward", best_reward)
+            # Recover episode count from rewards.txt if possible (more accurate)
+            if os.path.exists(training_log_path):
+                with open(training_log_path, "r") as f:
+                    i_episode = len(f.readlines())
+            else:
+                i_episode = checkpoint_data.get("episode", 0)
+            print(f"Resumed at episode {i_episode} with best reward {best_reward:.2f}")
+
+        # 2. Fallback to model_latest.pth (weights only)
+        elif os.path.exists(current_model_path):
+            print(f"No optimizer checkpoint found. Falling back to weights: {current_model_path}")
+            agent.load_checkpoint(current_model_path)
+            if os.path.exists(training_log_path):
+                with open(training_log_path, "r") as f:
+                    i_episode = len(f.readlines())
+            print(f"Resumed at episode {i_episode} (optimizer reset)")
+        else:
+            print("Warning: Resume requested but no checkpoint or latest model found. Starting fresh.")
+    else:
+        # Standard weights loading (from config)
+        if config.training.load_weights_from and os.path.exists(
+            config.training.load_weights_from
+        ):
+            #
+            print(f"Loading weights from {config.training.load_weights_from}")
+            #
+            try:
+                #
+                agent.policy.load_state_dict(
+                    torch.load(config.training.load_weights_from, map_location=agent.device)
+                )
+                agent.policy_old.load_state_dict(agent.policy.state_dict())
+                #
+                print("Weights loaded successfully")
+            #
+            except Exception as e:
+                #
+                print(f"Error loading weights: {e}")
 
     #
     avg_rewards_list: list[float] = []
@@ -221,25 +253,26 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
                     ep_steps = episode_steps[idx]
                     interval_completed_rewards.append(ep_reward)
 
+                    # Reset episode tracking
+                    episode_rewards[idx] = 0.0
+                    episode_steps[idx] = 0
+                    i_episode += 1
+                    pbar.update(1)
+
                     # Print episode info to terminal
                     print(
-                        f"\n[Episode {i_episode + 1}] Reward: {ep_reward:.2f} | Steps: {ep_steps}"
+                        f"\n[Episode {i_episode}] Reward: {ep_reward:.2f} | Steps: {ep_steps}"
                     )
 
                     # Log immediately (Ctrl+C safe)
                     try:
+                        # Use append mode "a"
                         with open(training_log_path, "a") as f:
                             f.write(f"{ep_reward}\n")
                             f.flush()
                     #
                     except Exception as e:
                         print(f"Error writing log: {e}")
-
-                    # Reset episode tracking
-                    episode_rewards[idx] = 0.0
-                    episode_steps[idx] = 0
-                    i_episode += 1
-                    pbar.update(1)
 
             # Update state
             state = next_state
@@ -295,6 +328,8 @@ def train(config: GlobalConfig, exp_dir_override: Optional[str] = None) -> None:
             # Save latest periodically
             if i_episode % 10 == 0:
                 torch.save(agent.policy.state_dict(), current_model_path)
+                # Also save full checkpoint including optimizer state
+                agent.save_checkpoint(checkpoint_path, i_episode, best_reward)
 
             # Early stopping
             if early_stopping_enabled:
@@ -333,6 +368,9 @@ def main() -> None:
     parser.add_argument(
         "--config", type=str, default="config/main.yaml", help="Config file path"
     )
+    parser.add_argument(
+        "--resume", action="store_true", help="Resume from latest checkpoint"
+    )
     #
     args: argparse.Namespace = parser.parse_args()
 
@@ -346,7 +384,7 @@ def main() -> None:
         pass
 
     # Run training
-    train(cfg)
+    train(cfg, resume=args.resume)
 
 
 # This script can also be directly run from the command line instead of using src.main

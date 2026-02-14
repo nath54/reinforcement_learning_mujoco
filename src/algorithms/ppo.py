@@ -4,6 +4,7 @@ PPO Algorithm Module
 Proximal Policy Optimization (PPO) agent implementation.
 """
 
+from typing import Any
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -269,6 +270,36 @@ class PPOAgent:
         self.policy_old.load_state_dict(self.policy.state_dict())
 
         self.MseLoss: nn.MSELoss = nn.MSELoss()
+
+    def save_checkpoint(self, path: str, episode: int, best_reward: float) -> None:
+        """
+        Save a full checkpoint: policy, optimizer, episode, and best reward.
+        """
+        checkpoint = {
+            "policy_state_dict": self.policy.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "episode": episode,
+            "best_reward": best_reward,
+        }
+        torch.save(checkpoint, path)
+
+    def load_checkpoint(self, path: str) -> dict[str, Any]:
+        """
+        Load a checkpoint. Handles both full checkpoints and legacy weight-only files.
+        """
+        checkpoint = torch.load(path, map_location=self.device)
+
+        # Check if it's a full checkpoint or just a state dict
+        if "policy_state_dict" in checkpoint:
+            self.policy.load_state_dict(checkpoint["policy_state_dict"])
+            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            self.policy_old.load_state_dict(self.policy.state_dict())
+            return checkpoint
+        else:
+            # Legacy weight-only file
+            self.policy.load_state_dict(checkpoint)
+            self.policy_old.load_state_dict(self.policy.state_dict())
+            return {"policy_state_dict": checkpoint, "episode": 0, "best_reward": -float("inf")}
 
     def select_action(
         self, state: NDArray[np.float64]
