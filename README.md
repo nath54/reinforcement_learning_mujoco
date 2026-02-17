@@ -3,6 +3,61 @@
 ## Overview
 A fully modular, type-hinted, and YAML-configurable RL training environment for robot navigation using MuJoCo physics simulation. Supports curriculum learning with multiple scene types and goal-based navigation.
 
+
+## Setup Instructions
+
+1. Clone/navigate to project
+```bash
+git clone https://github.com/nath54/reinforcement_learning_mujoco.git
+cd reinforcement_learning_mujoco/
+```
+
+2. Create virtual environment (recommended)
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```
+
+3. Install dependencies
+```bash
+pip install -r requirements.txt
+
+# (Optional)
+python validate_installation.py  # Verify setup
+```
+
+4. Visualize the trained robot
+```bash
+python -m src.main --play --config config/main_robot_trained.yaml --model_path best_models/best_model.pth
+```
+
+---
+
+If you want to train the robot yourself, use the following command:
+```bash
+python -m src.main --train --config config/main_robot_trained.yaml  # Or any other configs existing in the config directory.
+```
+
+It is also possible to train a curriculum pipeline using the following command:
+```bash
+python -m src.main --pipeline configs_pipelines/curriculum_v2_hd/pipeline.yaml
+```
+
+Here are examples of results of a robot trained with the curriculum pipeline `configs_pipelines/curriculum_v2_hd/pipeline.yaml` playing:
+
+- **Stage 04 results :**
+
+![alt text](play_stage_04_success.png)
+
+As you can see, the robot succesfully navigates through the corridor and reaches the goal.
+
+- **Stage 05 results :**
+
+![alt text](play_stage_05_not_bad.png)
+
+As you can see, here, the robot didn't reach the goal, but succesfully navigates through a part of the corridor to get closer to the goal before falling off a hole.
+
+
 ## Recent Updates
 
 - **Multi-Scene Support**: New `flat_world` scene type alongside corridor
@@ -148,13 +203,6 @@ PyYAML>=6.0
 matplotlib>=3.7.0
 tqdm>=4.65.0
 opencv-python>=4.8.0  # Optional, for live vision
-```
-
-## Installation
-
-```bash
-pip install -r requirements.txt
-python validate_installation.py  # Verify setup
 ```
 
 ## Key Architecture

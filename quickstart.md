@@ -11,9 +11,7 @@ python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # 3. Install dependencies
-pip install mujoco>=3.0.0 torch>=2.0.0 numpy>=1.24.0 \
-    gymnasium>=0.29.0 PyYAML>=6.0 matplotlib>=3.7.0 \
-    tqdm>=4.65.0 opencv-python>=4.8.0
+pip install -r requirements.txt
 ```
 
 ## File Structure Check
@@ -22,21 +20,28 @@ Make sure you have:
 ```
 robot_corridor_modular/
 ├── config/
-│   └── main.yaml
+│   ├── main.yaml
+│   ├── main_robot_trained.yaml
+│   └── ... (other config files)
+├── configs_pipelines/
+|   ├── curriculum_v1
+│   │   ├── pipeline.yaml
+│   │   └── stage_0x.yaml (x = 1 to 5, the different stages of the curriculum)
+|   ├── curriculum_v2_hd
+│   │   ├── pipeline.yaml
+│   │   └── stage_0x.yaml (x = 1 to 5, the different stages of the curriculum)
 ├── src/
 │   ├── main.py
 │   └── ... (all modules)
-└── four_wheels_robot.xml  # IMPORTANT: Robot XML file
+├── xml/
+│   ├── four_wheels_robot.xml  # IMPORTANT: Robot XML file
+│   └── ... (other xml files)
 ```
 
 ## Quick Test
 
 ```bash
-# Test config loading
-python -c "from src.core.config_loader import load_config; print('Config OK')"
-
-# Test environment
-python -c "from src.core.config_loader import load_config; from src.environment.wrapper import SimulationEnv; cfg = load_config('config/main.yaml'); env = SimulationEnv(cfg); print('Environment OK')"
+python validate_installation.py
 ```
 
 ## Usage
@@ -51,7 +56,7 @@ python -m src.main --interactive
 
 **Controls**:
 - `↑` Forward
-- `↓` Backward  
+- `↓` Backward
 - `←` Turn left
 - `→` Turn right
 - `Space` Stop
@@ -63,8 +68,16 @@ python -m src.main --interactive
 
 **Best for**: Training a new agent
 
+Single config training:
+
 ```bash
 python -m src.main --train --config config/main.yaml
+```
+
+Pipeline training:
+
+```bash
+python -m src.main --pipeline --train --config configs_pipelines/curriculum_v2_hd/pipeline.yaml
 ```
 
 **What happens**:
@@ -84,7 +97,7 @@ python -m src.main --train --config config/main.yaml
 python -m src.main --play --model_path trainings_exp/TIMESTAMP/best_model.pth
 ```
 
-**With live vision**:
+**With live vision** to examine what the agent sees:
 ```bash
 python -m src.main --play --model_path path/to/model.pth --live_vision
 ```
@@ -99,7 +112,7 @@ simulation:
   corridor_length: 100.0    # Shorter = easier
   obstacles_mode: "none"    # Start with no obstacles
 
-# Robot behavior  
+# Robot behavior
 robot:
   control_mode: "discrete_direction"  # Easier than continuous
   max_speed: 10.0                     # Lower = more stable
@@ -186,13 +199,11 @@ plt.show()
 
 **"Config file not found"**: Run from project root, not `src/`
 
-**"Robot XML not found"**: Copy `four_wheels_robot.xml` to project root
+**"Robot XML not found"**: Copy `four_wheels_robot.xml` to the `xml/` folder
 
 **Training very slow**: Reduce `num_envs` in config
 
 **Agent not learning**: Check reward scale, try discrete control first
-
-See `TROUBLESHOOTING.md` for more details.
 
 ## Next Steps
 
@@ -206,5 +217,5 @@ See `TROUBLESHOOTING.md` for more details.
 - Start simple (no obstacles, discrete control)
 - Train for a few hundred episodes first
 - Use `--live_vision` to understand what agent sees
-- Save good models (they're small, ~1-5MB)
+- Save good models (they're small, ~7MB)
 - Compare different configs by training multiple times
