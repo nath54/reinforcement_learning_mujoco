@@ -100,6 +100,11 @@ As you can see, here, the robot didn't reach the goal, but succesfully navigates
 - Randomized goal position each episode
 - Good for omnidirectional navigation
 
+### Custom XML file (`scene_type: "custom_xml"`)
+
+- Use a custom XML file to define the scene
+- For example, the config `config/main_robot_trained.yaml` uses a custom XML file to define the scene here `xml/corridor_3x100_no_full_obstacles.xml`.
+
 ## Control Modes
 
 | Mode                 | Actions | Description                    |
@@ -111,22 +116,26 @@ As you can see, here, the robot didn't reach the goal, but succesfully navigates
 ## Usage
 
 ### Training (Single Config)
+
 ```bash
 python -m src.main --train --config config/main.yaml
 ```
 
 ### Curriculum Training (Pipeline)
+
 ```bash
 python -m src.main --pipeline configs_pipelines/curriculum_v1/pipeline.yaml
 ```
 
 ### Play with Trained Model
+
 ```bash
 python -m src.main --play --model_path outputs/best_model.pt --config config/main.yaml
 python -m src.main --play --model_path outputs/best_model.pt --live_vision  # With vision overlay
 ```
 
 ### Interactive Keyboard Control
+
 ```bash
 python -m src.main --interactive --config config/main.yaml
 python -m src.main --interactive --config configs_pipelines/curriculum_v1/stage_01_flat.yaml
@@ -142,6 +151,7 @@ python -m src.main --interactive --config configs_pipelines/curriculum_v1/stage_
 ## Configuration
 
 ### Scene Configuration
+
 ```yaml
 simulation:
   scene_type: "flat_world"    # or "corridor"
@@ -165,6 +175,7 @@ When `include_goal: true`, the state vector includes:
 - `angle`: Angle to goal relative to robot heading
 
 ### Reward Configuration
+
 ```yaml
 rewards:
   goal: 100.0                 # Goal reaching bonus
@@ -175,12 +186,22 @@ rewards:
 
 ## Reward System
 
-The reward is **distance-based**:
+The reward system is **progress-based**, encouraging the agent to move toward the goal while avoiding being stuck:
+
 ```
-reward = (prev_distance - current_distance) * velocity_reward_scale
+step_reward = (delta_distance * (velocity_reward_scale + forward_progress_scale)) + bonuses_and_penalties
 ```
 
-This works for both scene types - the agent learns to reduce distance to goal regardless of direction.
+Where:
+- **`delta_distance`**: `prev_distance - current_distance` (positive when getting closer).
+- **`velocity_reward_scale`**: Main multiplier for distance reduction.
+- **`forward_progress_scale`**: Additional multiplier for distance reduction (effectively adds to the velocity scale).
+- **`bonuses_and_penalties`**:
+    - `goal`: A large bonus (**+100.0** or configurable) awarded when reaching the goal radius.
+    - `stuck_penalty`: A per-step penalty (**-0.05**) applied if horizontal velocity is below a threshold.
+    - `fall_penalty`: A large penalty (**-50.0**) if the robot falls off the arena (triggering termination).
+
+**Note:** The final reward is multiplied by `training.reward_scale` (default 1.0) before being used by the RL algorithm. This works for both **Corridor** and **Flat World** scenes as it always promotes distance reduction to the visual goal.
 
 ## Training Features
 
@@ -194,15 +215,17 @@ This works for both scene types - the agent learns to reduce distance to goal re
 
 ## Dependencies
 
+See `requirements.txt`:
+
 ```
-mujoco>=3.0.0
-torch>=2.0.0
-numpy>=1.24.0
-gymnasium>=0.29.0
-PyYAML>=6.0
-matplotlib>=3.7.0
-tqdm>=4.65.0
-opencv-python>=4.8.0  # Optional, for live vision
+pyyaml
+numpy
+matplotlib
+mujoco
+gymnasium
+opencv-python
+torch
+tqdm
 ```
 
 ## Key Architecture
